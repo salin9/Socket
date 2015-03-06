@@ -1,0 +1,25 @@
+rpcInit():
+
+-100 : ERROR: failed to get machine hostname
+-101 : ERROR: server failed to open socket for client
+-102 : ERROR: server failed to bind
+-103 : ERROR: server failed to listen
+-104 : ERROR: fail on loading BINDER_ADDRESS
+-105 : ERROR: fail on loading BINDER_PORT
+-106 : ERROR: fail on getting binder info
+-107 : ERROR: server failed to open socket for binder
+-108 : ERROR: fail on connecting to binder
+
+
+-------------------------------------------------------
+rpcRegister():
+
+-120 : ERROR: failed to get machine hostname
+-121 : ERROR: failed to get socket address
+-122 : ERROR: fail on sending message
+-123 : ERROR: fail on receiving message
+
+
+
+---------------------------------------------------------
+
