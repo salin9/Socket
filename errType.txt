@@ -23,3 +23,15 @@ rpcRegister():
 
 ---------------------------------------------------------
 
+rpcCall():
+-140 : ERROR: fail on loading BINDER_ADDRESS
+-141 : ERROR: fail on loading BINDER_PORT
+-142 : ERROR: fail on getting binder info
+-143 : ERROR: server failed to open socket for binder
+-144 : ERROR: fail on connecting to binder
+-145 : ERROR: fail on sending message
+-146 : ERROR: fail on receiving message
+
+
+
+
