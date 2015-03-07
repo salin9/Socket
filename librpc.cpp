@@ -104,8 +104,128 @@ using namespace std;
 
 */
 int rpcCall(char * name, int * argTypes, void ** args){
+    
+    /*
+    
+     Connect to the binder first
+     
+    */
+    char* binder_address = getenv("BINDER_ADDRESS");
+    if(binder_address == NULL) return (-140);
+    
+    int portnum = atoi(getenv("BINDER_PORT"));
+    if(portnum == 0) return (-141);
+    
+    struct sockaddr_in sockaddr2;
+    struct hostent *binder;
+    int socket1;
+    
+    if ((binder = gethostbyname(binder_address)) == NULL) return (-142);
+    
+    memset(&sockaddr2, 0, sizeof(struct sockaddr_in));
+    
+    memcpy((char *)&sockaddr2.sin_addr, binder->h_addr, binder->h_length); /* set address */
+    sockaddr2.sin_family = binder->h_addrtype;
+    sockaddr2.sin_port = htons(portnum);
+    
+    // create the socket for connection to the binder.
+    if ((socket1 = socket(AF_INET, SOCK_STREAM, 0)) < 0) return (-143);
+    
+    // connect to the binder.
+    if (connect(socket1, (struct sockaddr*)&sockaddr2, sizeof(struct sockaddr_in)) < 0) {
+        close(socket1);
+        return (-144);
+    }
+    
+    /*
+     
+     After connecting to binder, send location request message
+     
+    */
+    int message_length, message_length_htonl, bytesSent;
+    int msg_type = 110;
+    int msg_type_htonl;
+    string message = "";
+    
+    // add name
+    message += name;
+    cout << "message: " << message << endl;
+    
+    // add artTypes
+    for(int i = 0; ; i++){
+        if(argTypes[i] == 0) break;
+        message += " ";
+        message += to_string(argTypes[i]);
+    }
+    cout << "message: " << message << endl;
 
-
+    // send the message length first.
+    message_length = message.length() + 1;
+    message_length_htonl = htonl(message_length);
+    bytesSent = send(socket1, &message_length_htonl, sizeof(int), 0);
+    // failure case
+    if(bytesSent <= 0) return (-145);
+    
+    // followed by type
+    msg_type_htonl = htonl(msg_type);
+    bytesSent = send(socket1, &msg_type_htonl, sizeof(int), 0);
+    // failure case
+    if(bytesSent <= 0) return (-145);
+    
+    // followed by message
+    char* str = (char*) message.c_str();
+    
+    for(int bytesLeft = message_length; bytesLeft > 0; ){
+        bytesSent = send(socket1, str, bytesLeft, 0);
+        if(bytesSent <= 0) return (-145);
+        str = str + bytesSent;
+        bytesLeft = bytesLeft - bytesSent;
+    }
+    
+    /*
+     
+        Get the binder's response
+     
+    */
+    int bytesRecv;
+    
+    // get the first 4 bytes for the Message Length.
+    bytesRecv = recv(fd_binder, &message_length, sizeof(int), 0);
+    if(bytesRecv <= 0) return (-123);
+    message_length = ntohl(message_length);
+    
+    // get the next 4 bytes for the Message Type.
+    bytesRecv = recv(socket1, &msg_type, sizeof(int), 0);
+    if(bytesRecv <= 0) return (-146);
+    msg_type = ntohl(msg_type);
+    
+    // LOC_FAILURE
+    if(msg_type == 112){
+        int errMsg;
+        // get the next 4 bytes for the error message
+        bytesRecv = recv(socket1, &errMsg, sizeof(int), 0);
+        if(bytesRecv <= 0) return (-146);
+        errMsg = ntohl(errMsg);
+        return errMsg;
+    }
+    
+    // LOC_SUCCESS : server_identifier, port
+    char* msg = new char[message_length];
+    
+    // Since the number of bytes actually receive might be less than the number it was set to receive.
+    // Need a loop to receive the complete string.
+    for(int bytesLeft = message_length; bytesLeft > 0; ){
+        bytesRecv = recv(socket1, msg, bytesLeft, 0);
+        if(bytesRecv <= 0) return (-146);
+        bytesLeft = bytesLeft - bytesRecv;
+        msg += bytesRecv;
+    }
+    msg -= message_length;
+    
+    string receivedMsg(message);
+    
+    
+    
 
 }
 
@@ -161,7 +281,6 @@ int rpcInit(){
 
     /* max # of queued connects */
     if((listen(socket1, MAX_CLIENT)) < 0) return (-103);
-
 
 
     /*
@@ -288,7 +407,7 @@ int rpcRegister(char *name, int *argTypes, skeleton f){
     cout << "message: " << message << endl;
 
 
-    // send the string length first.
+    // send the message length first.
     message_length = message.length() + 1;
     message_length_htonl = htonl(message_length);
     bytesSent = send(fd_binder, &message_length_htonl, sizeof(int), 0);
@@ -311,11 +430,19 @@ int rpcRegister(char *name, int *argTypes, skeleton f){
         bytesLeft = bytesLeft - bytesSent;
     }
 
-
-    // receive binder's response
-
+    /*
+     
+     
+     receive binder's response
+     
+     
+    */
     int bytesRecv, msg;
-    // get the first 4 bytes for the Message Type.
+    // get the first 4 bytes for the Message Length (useless in this case).
+    bytesRecv = recv(fd_binder, &msg, sizeof(int), 0);
+    if(bytesRecv <= 0) return (-123);
+    
+    // get the next 4 bytes for the Message Type.
     bytesRecv = recv(fd_binder, &msg_type, sizeof(int), 0);
     if(bytesRecv <= 0) return (-123);
     msg_type = ntohl(msg_type);
@@ -323,7 +450,7 @@ int rpcRegister(char *name, int *argTypes, skeleton f){
     // get the next 4 bytes for the message
     bytesRecv = recv(fd_binder, &msg, sizeof(int), 0);
     if(bytesRecv <= 0) return (-123);
-    msg = ntohl(msgmsg);
+    msg = ntohl(msg);
 
     //
     return msg;
@@ -352,7 +479,7 @@ int rpcRegister(char *name, int *argTypes, skeleton f){
         To implement the register func you will need to send a register message to the binder.
 */
 int rpcExecute(void){
-
+    
 
 }
 
