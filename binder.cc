@@ -82,13 +82,13 @@ static void handleRegister(int i /*fd*/ ){
 	string* name;
 	int* argTypes;
 	
-	if (receiveStringMessage(i, &host, 0) < 0)	// 0 stands for string type					// delete !!!
+	if (receiveStringMessage(i, &host) < 0)					// delete !!!
 		error("ERROR: binder failed to receive host info");			
-	if (receiveIntMessage(i, &port, 1) <0)		// 1 stands for integer type
+	if (receiveIntMessage(i, &port) <0)
 		error("ERROR: binder failed to receive port info");
-	if (receiveStringMessage(i, &name, 0) <0)										// delete !!!
+	if (receiveStringMessage(i, &name) <0)					// delete !!!
 		error("ERROR: binder failed to receive function name");
-	if (receiveArrayMessage(i, argTypes, 2) <0)	// 2 stands for int array - terminated by 0		// delete !!!
+	if (receiveArrayMessage(i, argTypes) <0)					// delete !!!
 		error("ERROR: binder filed to receive argTypes");
 		
 	// now register the server & procedure
@@ -125,9 +125,9 @@ static void handleRegister(int i /*fd*/ ){
 	}
 	returnMessage = "REGISTER_SUCCESS";				// when is returnMessage = "REGISTER_FAILUER"????
 	
-	if (sendStringMessage(i, returnMessage, 0) < 0)
+	if (sendStringMessage(i, returnMessage) < 0)
 		error("ERROR: binder failed to send back success/failure message");
-	if (sendIntMessage(i, returnValue, 0) < 0)
+	if (sendIntMessage(i, returnValue) < 0)
 		error("ERROR: binder failed to send back warning/error message");
 	
 }
@@ -143,9 +143,9 @@ static void handleRequest(int i /*fd*/){
 	string* name;
 	int* argTypes;
 	
-	if (receiveStringMessage(i, &name, 0) <0)										// delete !!!
+	if (receiveStringMessage(i, &name) <0)										// delete !!!
 		error("ERROR: binder failed to reveice function name");
-	if (receiveArrayMessage(i, argTypes, 2) <0)								// delete !!!
+	if (receiveArrayMessage(i, argTypes) <0)								// delete !!!
 		error("ERROR: binder filed to receive argTypes");
 		
 	struct function tempFunction(name, argTypes);
@@ -155,9 +155,9 @@ static void handleRequest(int i /*fd*/){
 		returnMessage = "LOC_FAILURE";
 		returnValue = ERROR_PROCEDURE_NOT_REGISTERED;
 		
-		if (sendStringMessage(i, returnMessage, 0) < 0)
+		if (sendStringMessage(i, returnMessage) < 0)
 			error("ERROR: binder failed to send failure message");
-		if (sendIntMessage(i, returnValue, 0) < 0)
+		if (sendIntMessage(i, returnValue) < 0)
 			error("ERROR: binder failed to send warning/error message");
 		
 	}
@@ -171,11 +171,11 @@ static void handleRequest(int i /*fd*/){
 		int port = Servers->at(i)->port;
 		returnMessage = "LOC_SUCCESS";
 		
-		if (sendStringMessage(i, returnMessage, 0) < 0)
+		if (sendStringMessage(i, returnMessage) < 0)
 			error("ERROR: binder failed to send success message");
-		if (sendIntMessage(i, fd, 0) < 0)
+		if (sendIntMessage(i, fd) < 0)
 			error("ERROR: binder failed to send fd number");
-		if (sendIntMessage(i, port, 0) < 0)
+		if (sendIntMessage(i, port) < 0)
 			error("ERROR: binder failed to send port number");
 		
 		// update next available server's index
@@ -272,7 +272,7 @@ void work(int listener){
 				// else, if ready to read from client, handle new data
 				else{
 					string* words;								// by our mechanism, it should specify message type
-					int byteRead = receiveMessage(i, &words);	// remeber to delete words after useage!!!
+					int byteRead = receiveStringMessage(i, &words);	// remeber to delete words after useage!!!
 					if (byteRead < 0){
 						close(i);								// SHOULD remove server (if i=server fd) from map !!!!!!!!!!!!!!!!!!! later
 						FD_CLR(i, &master);
