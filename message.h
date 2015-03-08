@@ -1,11 +1,19 @@
 #ifndef _MESSAGE_H_
 #define _MESSAGE_H_
 
+#include <string>
 
-int sendMessage(int sockfd, void words);
+/*
+int sendMessage(int sockfd, std::string words);
+int receiveMessage(int sockfd, std::string** words);
+*/
 
-// type: 0: string. 1: int. 2: array, terminated by 0
-int receiveMessage(int sockfd, void** words, int type);
+int sendStringMessage(int sockfd, std::string words);
+int sendIntMessage(int sockfd, int words);
+int sendArrayMessage(int sockfd, int* words);
+int receiveStringMessage(int sockfd, std::string** words);
+int receiveIntMessage(int sockfd, int* words);
+int receiveArrayMessage(int sockfd, int** words);
 
 
 #endif

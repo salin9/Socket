@@ -1,0 +1,18 @@
+initializeSocket:
+
+-200 : ERROR: binder failed to open socket
+-201 : ERROR: binder failed to bind
+-202 : ERROR: binder failed to listen
+
+---------------------------
+
+printBinderInfo:
+
+-203 : ERROR: binder failed to achieve machine name
+-204 : ERROR: binder failed to achieve socket address
+
+----------------------------
+
+work:
+
+-205:
