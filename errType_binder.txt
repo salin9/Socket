@@ -20,6 +20,13 @@ printBinderInfo:
 
 ----------------------------
 
+work:
+
+-210 : ERROR: binder failed to select
+-211 : ERROR: binder failed to accept
+-212 : ERROR: binder failed to read from client
+
+----------------------------
 
 handleRegister:
 
@@ -30,8 +37,13 @@ handleRegister:
 -224 : ERROR: binder failed to send return message
 -225 : ERROR: binder failed to send return value
 
+220 : WARNING: binder has encountered previously registered procedure 
 
+----------------------------
 
-work:
+handleRequest:
 
--205:
+-222 : ERROR: binder failed to receive function name
+-223 : ERROR: binder failed to receive argTypes
+
+-240 : ERROR: binder has not registered the function

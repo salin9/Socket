@@ -10,7 +10,6 @@
 #include <utility>      // pair
 
 #include "binder.h"
-#include "error.h"
 
 using namespace std;
 
@@ -70,16 +69,18 @@ int printBinderInfo(){
 
 
 /*
- register procedure and argument types -- from server -- in functionMap
-  -- if the (procedure, argTypes, server) already registered, send warning. (in rpc, update skeleton)
-  
-  Send back success/failure message to file descriptor i
-	1.	first send REGISTER_SUCCESS or REGISTER_FAILURE
-	2.	for REGISTER_SUCCESS, then send
-			== 0 indicate success
-			> 0  indicate warning (eg, same as some previously registered procedure)
-		for REGISTER_FAILURE, then send
-			< 0  indicate failure (eg, failure to receive)
+	void handleRegister(int i);
+	
+	register procedure and argument types -- from server -- in functionMap
+	  -- if the (procedure, argTypes, server) already registered, send warning. (in rpc, update skeleton)
+	  
+	Send back success/failure message to file descriptor i
+		1.	first send REGISTER_SUCCESS or REGISTER_FAILURE
+		2.	for REGISTER_SUCCESS, then send
+				== 0 indicate success
+				> 0  indicate warning (eg, same as some previously registered procedure)
+			for REGISTER_FAILURE, then send
+				< 0  indicate failure (eg, failure to receive)
   
 */
 static void handleRegister(int i /*fd*/ ){
@@ -119,7 +120,7 @@ static void handleRegister(int i /*fd*/ ){
 	// if any failure occurs, send back response
 	if (strcmp(returnMessage, "REGISTER_FAULURE") == 0){
 		sendStringMessage(i, returnMessage);
-		sendStringMessage(i, returnValue);
+		sendIntMessage(i, returnValue);
 		return;		
 	}
 	
@@ -186,9 +187,19 @@ static void handleRegister(int i /*fd*/ ){
 	
 }
 
+
 /*
- handle request from client.
- find the available server providing the function, using round robin mechanism
+
+	void handleRequest(int i);
+
+	handle request from client.
+	-- find the available server providing the function, using round robin mechanism
+	
+	Send back success/failure message to file descriptor i
+		1.	first send LOC_SUCCESS or LOC_FAILURE
+		2.	for LOC_SUCCESS, then send server-identifier and port number
+			for LOC_FAILURE, then send reason code
+	
 */
 static void handleRequest(int i /*fd*/){
 	string returnMessage;
@@ -197,17 +208,33 @@ static void handleRequest(int i /*fd*/){
 	string* name;
 	int* argTypes;
 	
-	if (receiveStringMessage(i, &name) <0)										// delete !!!
-		error("ERROR: binder failed to reveice function name");
-	if (receiveArrayMessage(i, argTypes) <0)								// delete !!!
-		error("ERROR: binder filed to receive argTypes");
+	if (receiveStringMessage(i, &name) <0){					// delete !!!
+		returnMessage = "LOC_FAILURE";
+		returnValue = (-222);
+	}
+	if (receiveArrayMessage(i, argTypes) <0){				// delete !!!
+		returnMessage = "LOC_FAILURE";
+		returnValue = (-223);
+	}
+	
+	// if any failure occurs, send back response
+	if (strcmp(returnMessage, "LOC_FAILURE") == 0){
+		sendStringMessage(i, returnMessage);
+		sendIntMessage(i, returnValue);
+		return;		
+	}
+	
+	/*
+	
+		now, use round robin mechanism to find the available server, if any
 		
+	*/
 	struct function tempFunction(name, argTypes);
 	
-	// if the function not found (not registered)
-	if (functionMap.find(tempFunction) == functionMap.end()){
+	// if the function not found (not registered), indicate failure
+	if (functionMap.count(tempFunction) == 0){
 		returnMessage = "LOC_FAILURE";
-		returnValue = ERROR_PROCEDURE_NOT_REGISTERED;
+		returnValue = (-240);
 		
 		if (sendStringMessage(i, returnMessage) < 0)
 			error("ERROR: binder failed to send failure message");
@@ -215,14 +242,15 @@ static void handleRequest(int i /*fd*/){
 			error("ERROR: binder failed to send warning/error message");
 		
 	}
-	// if function registered, return available server 
-	else{
-		
+	// if function registered, return the available server' fd and port
+	else{		
 		vector <struct server*>* Servers = &(functionMap[tempFunction].second);
-		int i = (functionMap[tempFunction].first) % (*Servers).size();		// find the index of the first available server
 		
+		// find the index of the first available server by RR
+		int i = (functionMap[tempFunction].first) % (Servers->size());		
 		int fd = Servers->at(i)->sockfd;
 		int port = Servers->at(i)->port;
+		
 		returnMessage = "LOC_SUCCESS";
 		
 		if (sendStringMessage(i, returnMessage) < 0)
@@ -239,22 +267,38 @@ static void handleRequest(int i /*fd*/){
 }
 
 /*
- receive terminate request from client
- send the terminate signal to all servers. after all servers terminate, the binder terminates
+	void hendleTerminate(int i, string* words);
+	
+	receive terminate request from client
+	-- send the terminate signal to all servers.
+	-- close sockets
+	-- after all servers terminate, the binder terminates (do this in function work())
+	
 */
-static void hendleTerminate(int i /*fd*/, string* words){
+static void hendleTerminate(int i /*fd*/, string* words, FD_SET &master){
 	map <struct function, pair<int, vector<struct server*> > >::iterator i;
+	
+	/*
+		loop over the functionMap, notify all servers in functionMap to terminate
+	*/
 	for (i = functionMap.begin(); i != functionMap.end(); i++){
-		vector<server*>* Servers = &(i->second);
-		for (int j = 0; j<Servers.size(); j++)
+		vector<server*>* Servers = &(i->second.second);
+		int end = Servers->size();
+		for (int j = 0; j<end; j++)
+			// if the binder hasn't notified the server, notify it
 			if (Servers->at(j)->valid){
+				int fd = Servers->at(j)->sockfd;
 				sendStringMessage(i, *words);	// ask server to terminate  -- later (REMINDER: on server side. in rpc)
-				Servers->at(j)->valid = 0;		// so that no duplicate "TERMINATE" message sent 
+				close(fd);						// close socket
+				FD_CLR(fd, &master);
+				Servers->at(j)->valid = 0;		// so that no duplicate "TERMINATE" message will be sent 
 			}
 	}
 	
-	// then terminate the binder itself
-	// have to do that in function -work()-
+	/* 
+		Then terminate the binder itself
+		have to do that in function - work() -
+	 */
 }
 
 
@@ -307,8 +351,7 @@ void work(int listener){
 
 		read_fds = master;
 		
-		if (select(fdmax+1, &read_fds, NULL, NULL, NULL) <0)
-			error("ERROR: server failed to select");
+		if (select(fdmax+1, &read_fds, NULL, NULL, NULL) <0) return (-210);
 		
 		// run through existing connections, look for data to read		
 		for (int i=0; i<=fdmax; i++){
@@ -318,8 +361,7 @@ void work(int listener){
 				if (i == listener){
 					cli_addr_size = sizeof(cli_addr);
 					newsockfd = accept(listener, (struct sockaddr*)&cli_addr, &cli_addr_size);
-					if (newsockfd < 0)
-						error("ERROR: binder failed to accept");
+					if (newsockfd < 0) return (-211);
 
 					FD_SET(newsockfd, &master);		// add to master, since currently connected
 					if (newsockfd > fdmax)			// update fdmax
@@ -333,7 +375,7 @@ void work(int listener){
 						close(i);								// SHOULD remove server (if i=server fd) from map !!!!!!!!!!!!!!!!!!! later
 						FD_CLR(i, &master);
 						delete words;	// delete!!!
-						error("ERROR: binder failed to read from client");
+						return (-212);
 					}
 					// else, if an attempt to receive a request fails, assume the client/server has quit
 					else if (byteRead == 0){
@@ -357,13 +399,13 @@ void work(int listener){
 						}
 						// if client/binder message - TERMINATE
 						else if (*words == "TERMINATE"){
-							// inform all servers to terminate
-							hendleTerminate(i /*fd*/, words);
+							// inform all servers to terminate, close socket
+							hendleTerminate(i /*fd*/, words, master);
 							delete words;
 							// close itself
 							close(i);
 							FD_CLR(i, &master);
-							// maybe clean up the map? 
+							// maybe clean up the map 
 							clearMap();
 						}
 						
