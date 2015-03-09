@@ -34,4 +34,56 @@ rpcCall():
 
 
 
+---------------------------------------------------------
+
+message:
+
+-300 : ERROR: failed to send message
+-301 : ERROR: failed to receive message
+
+---------------------------------------------------------
+
+initializeSocket:
+
+-200 : ERROR: binder failed to open socket
+-201 : ERROR: binder failed to bind
+-202 : ERROR: binder failed to listen
+
+---------------------------------------------------------
+
+printBinderInfo:
+
+-203 : ERROR: binder failed to achieve machine name
+-204 : ERROR: binder failed to achieve socket address
+
+---------------------------------------------------------
+
+work:
+
+-210 : ERROR: binder failed to select
+-211 : ERROR: binder failed to accept
+-212 : ERROR: binder failed to read from client
+
+---------------------------------------------------------
+
+handleRegister:
+
+-220 : ERROR: binder failed to receive host name
+-221 : ERROR: binder failed to receive port number
+-222 : ERROR: binder failed to receive function name
+-223 : ERROR: binder failed to receive argTypes
+-224 : ERROR: binder failed to send return message
+
+220 : WARNING: binder has encountered previously registered procedure 
+
+---------------------------------------------------------
+
+handleRequest:
+
+-222 : ERROR: binder failed to receive function name
+-223 : ERROR: binder failed to receive argTypes
+
+-240 : ERROR: binder has not registered the function
+
+
 

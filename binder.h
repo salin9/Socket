@@ -63,7 +63,7 @@ struct server{
 
 int initializeSocket();
 int printBinderInfo();
-void work(int);
+int work(int);
 
 
 

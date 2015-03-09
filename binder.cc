@@ -79,7 +79,7 @@ int printBinderInfo(){
 
 
 /*
-	void handleRegister(int fd);
+	int handleRegister(int fd);
 	
 	register procedure and argument types -- from server -- in functionMap
 	  -- if the (procedure, argTypes, server) already registered, send warning. (in rpc, update skeleton)
@@ -93,7 +93,7 @@ int printBinderInfo(){
 				< 0  indicate failure (eg, failure to receive)
   
 */
-static void handleRegister(int fd ){
+static int handleRegister(int fd ){
 	
 	string returnMessage = "";		// indicate success or failure
 	int returnValue = 0;			// indicate warning or errors, if any
@@ -131,7 +131,7 @@ static void handleRegister(int fd ){
 	if (strcmp(returnMessage, "REGISTER_FAULURE") == 0){
 		sendStringMessage(fd, returnMessage);
 		sendIntMessage(fd, returnValue);
-		return;		
+		return returnValue;		
 	}
 	
 	/*
@@ -223,22 +223,24 @@ static void handleRegister(int fd ){
 	
 	*/
 	if (sendStringMessage(fd, returnMessage) < 0) {
-		returnMessage = "REGISTER_FAILURE";				// < ------------------- what ?! 
+		returnMessage = "REGISTER_FAILURE";
 		returnValue = (-224);
 		error("ERROR: binder failed to send back success/failure message");
 	}
 	if (sendIntMessage(fd, returnValue) < 0){
-		returnMessage = "REGISTER_FAILURE";				// < ------------------- what ?! 
-		returnValue = (-225);
+		returnMessage = "REGISTER_FAILURE";	
+		returnValue = (-224);
 		error("ERROR: binder failed to send back warning/error message");
 	}
+	
+	return returnValue;
 	
 }
 
 
 /*
 
-	void handleRequest(int fd);
+	int handleRequest(int fd);
 
 	handle request from client.
 	-- find the available server providing the function, using round robin mechanism
@@ -249,7 +251,7 @@ static void handleRegister(int fd ){
 			for LOC_FAILURE, then send reason code
 	
 */
-static void handleRequest(int fd){
+static int handleRequest(int fd){
 	string returnMessage;
 	int returnValue;
 	
@@ -269,7 +271,7 @@ static void handleRequest(int fd){
 	if (returnMessage.compare("LOC_FAILURE") == 0)){
 		sendStringMessage(fd, returnMessage);
 		sendIntMessage(fd, returnValue);
-		return;		
+		return returnValue;		
 	}
 	
 	/*
@@ -285,8 +287,10 @@ static void handleRequest(int fd){
 		returnValue = (-240);
 		
 		if (sendStringMessage(fd, returnMessage) < 0)
+			returnValue = (-224);
 			error("ERROR: binder failed to send failure message");
 		if (sendIntMessage(fd, returnValue) < 0)
+			returnValue = (-224);
 			error("ERROR: binder failed to send warning/error message");
 		
 	}
@@ -325,15 +329,21 @@ static void handleRequest(int fd){
 		cerr << "by RR, the next available server is " << *(temp->host) << endl;;
 		
 		returnMessage = "LOC_SUCCESS";
+		returnValue = 0;
 		
 		if (sendStringMessage(fd, returnMessage) < 0)
+			returnValue = (-224);
 			error("ERROR: binder failed to send success message");
 		if (sendIntMessage(fd, fd) < 0)
+			returnValue = (-224);
 			error("ERROR: binder failed to send fd number");
 		if (sendIntMessage(fd, port) < 0)
+			returnValue = (-224);
 			error("ERROR: binder failed to send port number");
 
 	}
+	
+	return returnValue;
 	
 }
 
@@ -401,7 +411,7 @@ static void clear(){
 /*
 	receive & send message from/to client or server
 */
-void work(int listener){
+int work(int listener){
 	// select preparation	----- REUSE SELECT part from A2 (file: server.cc) -----
 	fd_set master;		// master file descriptor list - currently connected fd
 	fd_set read_fds;	// temp  file descriptor list for select()
@@ -448,7 +458,7 @@ void work(int listener){
 						close(i);					// SHOULD remove server (if i=server fd) from map !!!!!!!!!!!!!!!!!!! later
 						FD_CLR(i, &master);
 						delete words;
-						//return (-212);		// hmmm... any message?
+						return (-212);
 					}
 					// else, if an attempt to receive a request fails, assume the client/server has quit
 					else if (byteRead == 0){
@@ -462,13 +472,15 @@ void work(int listener){
 						
 						// if server/binder message - REGISTER
 						if (*words == "REGISTER"){
-							handleRegister(i /*fd*/ );
+							returnValue = handleRegister(i /*fd*/ );
 							delete words;
+							if (returnValue<0) return returnValue;
 						}
 						// if client/binder message - LOC_REQUEST
 						else if (*words == "LOC_REQUEST"){
-							handleRequest(i /*fd*/ );
-							delete words;							
+							returnValue = handleRequest(i /*fd*/ );
+							delete words;
+							if (returnValue<0) return returnValue;							
 						}
 						// if client/binder message - TERMINATE
 						else if (*words == "TERMINATE"){
@@ -477,7 +489,7 @@ void work(int listener){
 							delete words;
 							// maybe clean up serverVector and functionMap 
 							clear();
-							return;
+							return 0;
 						}	
 					}
 				}// END			
@@ -498,7 +510,8 @@ int main(){
 	if (result < 0) return result; 
 	
 	// listen
-	work(listener);
+	result = work(listener);
+	if (result < 0) return result;
 	
 	return 0;
 }
