@@ -14,15 +14,17 @@
 using namespace std;
 
 // store function-server map. 
-//   int-index indicates the next available server by round robin
-//   vector<int> indicates the index in the serverVector
+// -- vector<int> indicates the index in the serverVector
 map <struct function, pair<int, vector<int> > >functionMap;
 
 // stores servers' information
 vector<server*> serverVector;
 
-int init_index = 0;		// first, choose 0-th server which provides the function service
+// indicates the next server to be considered by round robin
+// -- every time a server implements a service, remove it to the RRqueue's back
+vector<int> RRqueue;
 
+int init_index = 0;		// first, choose 0-th server which provides the function service
 
 
 // error output.  ----- REUSE from A2
@@ -166,22 +168,23 @@ static void handleRegister(int fd ){
 		// else, new server
 		else{
 			serverVector.push_back(tempServer);
-			int count = serverVector.size();
+			int count = serverVector.size() - 1;
 			index.push_back(count);
+			
+			// also take a record in RRqueue
+			RRqueue.push_back(count);
 		}
 		
-		functionMap[tempFunction2] = make_pair(init_index, index);
-		cout << functionMap[tempFunction2].first << endl;	
+		functionMap[tempFunction2] = index;
 		
 		returnValue = 0;	// no warning
-		
 		
 	}
 	// if the (function,argTypes) already registered
 	else{
 		cerr << "function found " << *name << endl;
 		
-		vector<int>* index = &(functionMap[tempFunction].second);
+		vector<int>* index = &functionMap[tempFunction];
 		
 		// check if server already exist
 		// if server exists, send warning -- update skeleton in rpc (later!)
@@ -195,12 +198,20 @@ static void handleRegister(int fd ){
 					break;
 				}
 			}
+			// if the serverVector[i] NOT registered with this function
+			if (!flag2){
+				index->push_back(i);				
+			}
 		}
 		// else, new server
 		else{
 			serverVector.push_back(tempServer);
-			int count = serverVector.size();
-			index.push_back(count);
+			int count = serverVector.size() -1;
+			index->push_back(count);
+			
+			// also take a record in RRqueue
+			RRqueue.push_back(count);
+			
 			returnValue = 0;				// no warning
 		}		
 	}
@@ -255,7 +266,7 @@ static void handleRequest(int fd){
 	}
 	
 	// if any failure occurs, send back response
-	if (strcmp(returnMessage, "LOC_FAILURE") == 0){
+	if (returnMessage.compare("LOC_FAILURE") == 0)){
 		sendStringMessage(fd, returnMessage);
 		sendIntMessage(fd, returnValue);
 		return;		
@@ -279,15 +290,39 @@ static void handleRequest(int fd){
 			error("ERROR: binder failed to send warning/error message");
 		
 	}
-	// if function registered, return the available server' fd and port
-	else{		
-		vector <int>* index = &(functionMap[tempFunction].second);
+	// if function registered, send the available server' fd and port
+	else{
+		// index = index of all servers providing such a service in serverVector 
+		vector <int>* index = &functionMap[tempFunction];
+		int serverIndex = 0;		
+		int found = 0;	// 1 indicate "found"
+		for (int i=0; i < RRqueue.size(); i++){
+			// if not found, keep finding
+			if (!found){
+				for (int j=0; j<index->size(); j++){
+					if (RRqueue[i] == index->at(j)){
+						found = 1;
+						serverIndex = RRqueue[i];
+						break;
+					}
+				}
+			}
+			// if found, move the index i to the back of RRqueue, by swapping with the previous one
+			else{
+				int temp = RRqueue[i];
+				RRqueue[i] = RRqueue[i-1];
+				RRqueue[i-1] = temp;				
+			}
+		}
+		
+		// after the loop, we must have found at least one server providing such a service		
 		
 		// find the index of the first available server by RR
-		int i = (functionMap[tempFunction].first) % (index->size());
-		struct server* temp = serverVector[index->at(i)];
+		struct server* temp = serverVector[serverIndex];
 		int fd = temp->sockfd;
 		int port = temp->port;
+		
+		cerr << "by RR, the next available server is " << *(temp->host) << endl;;
 		
 		returnMessage = "LOC_SUCCESS";
 		
@@ -297,9 +332,7 @@ static void handleRequest(int fd){
 			error("ERROR: binder failed to send fd number");
 		if (sendIntMessage(fd, port) < 0)
 			error("ERROR: binder failed to send port number");
-		
-		// update next available server's index
-		functionMap[tempFunction].first++;
+
 	}
 	
 }
@@ -315,7 +348,7 @@ static void handleRequest(int fd){
 */
 static void hendleTerminate(int listener, string* words, FD_SET &master){
 	
-	map <struct function, pair<int, vector<int> > >::iterator i;
+	map <struct function, vector<int> >::iterator i;
 	
 	/*
 		loop over the serverVector, notify all servers to terminate
@@ -332,10 +365,8 @@ static void hendleTerminate(int listener, string* words, FD_SET &master){
 		Then terminate the binder itself
 		have to do that in function - work() -
 	 */
-	close(listener);				// close socket
+	close(listener);				// close binder's socket
 	FD_CLR(listener, &master);
-	
-	
 
 }
 
@@ -354,7 +385,7 @@ static void clear(){
 	}
 	
 	// try clear map
-	map <struct function, pair<int, vector<struct server*> > >::iterator i;
+	map <struct function,  vector<int> >::iterator i;
 	for (i = functionMap.begin(); i != functionMap.end(); i++){
 		const struct function* Func  = &(i->first);
 		functionMap.erase(i);
