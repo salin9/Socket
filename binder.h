@@ -4,8 +4,8 @@
 #include <string>
 #include <vector>
 
-#define max_client		10	// max simultaneous clients --- no limit. ignore the parameter "backlog" of listen
-#define max_host_name	64	// max host name length
+#define MAX_CLIENT		10	// max simultaneous clients --- no limit. ignore the parameter "backlog" of listen
+#define MAX_HOST_NAME	64	// max host name length
 
 
 
@@ -49,7 +49,7 @@ struct server{
 	int valid;			// live: 1. terminated: 0
 	server(std::string* host, int port, int fd): host(host), port(port), sockfd(fd), valid(1) {}
 	bool operator== (const server& other) const {
-	   return (string(host) == other.host 
+	   return (*host) == *(other.host)
 			&& port == other.port
 			&& sockfd == other.sockfd);
 	}

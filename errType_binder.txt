@@ -1,3 +1,10 @@
+message:
+
+-300 : ERROR: failed to send message
+-301 : ERROR: failed to receive message
+
+---------------------------
+
 initializeSocket:
 
 -200 : ERROR: binder failed to open socket
@@ -12,6 +19,18 @@ printBinderInfo:
 -204 : ERROR: binder failed to achieve socket address
 
 ----------------------------
+
+
+handleRegister:
+
+-220 : ERROR: binder failed to receive host name
+-221 : ERROR: binder failed to receive port number
+-222 : ERROR: binder failed to receive function name
+-223 : ERROR: binder failed to receive argTypes
+-224 : ERROR: binder failed to send return message
+-225 : ERROR: binder failed to send return value
+
+
 
 work:
 

@@ -24,7 +24,7 @@ static void error(const char *err){
 }
 
 
-// initialize socket and listen.   ----- REUSE from A2 (file: server.cc) -----
+// initialize socket and listen.   ----- REUSE from A2 (file: stringServer.cc) -----
 int initializeSocket(){
 	int sockfd, port;
 	struct sockaddr_in address;
@@ -44,17 +44,17 @@ int initializeSocket(){
 		return  (-201);
 
 	// listen
-	if (listen(sockfd, max_client) < 0)
+	if (listen(sockfd, MAX_CLIENT) < 0)
 		return (-202);
 	
 	return sockfd;		
 }
 
-// print the binder info: address and port.    ----- REUSE from A2 (file: server.cc) -----
+// print the binder info: address and port.    ----- REUSE from A2 (file: stringServer.cc) -----
 int printBinderInfo(){ 
 	//get machine name
-	char name[max_name];
-	if (gethostname(name, max_name) < 0)
+	char name[MAX_HOST_NAME+1];
+	if (gethostname(name, MAX_HOST_NAME) < 0)
 		return (-203);
 	cout << "BINDER_ADDRESS " << name << endl;
 
@@ -72,63 +72,117 @@ int printBinderInfo(){
 /*
  register procedure and argument types -- from server -- in functionMap
   -- if the (procedure, argTypes, server) already registered, send warning. (in rpc, update skeleton)
-  -- send back success/failure message
+  
+  Send back success/failure message to file descriptor i
+	1.	first send REGISTER_SUCCESS or REGISTER_FAILURE
+	2.	for REGISTER_SUCCESS, then send
+			== 0 indicate success
+			> 0  indicate warning (eg, same as some previously registered procedure)
+		for REGISTER_FAILURE, then send
+			< 0  indicate failure (eg, failure to receive)
   
 */
 static void handleRegister(int i /*fd*/ ){
-	// receive server_identifier,  port,  name,  argTypes
+	
+	string returnMessage = "";		// indicate success or failure
+	int returnValue = 0;			// indicate warning or errors, if any
+	
+	/* 
+	
+		receive server's registration information
+		including server_identifier,  port,  name,  argTypes
+	
+	*/
+
 	string* host;
 	int port;
 	string* name;
 	int* argTypes;
 	
-	if (receiveStringMessage(i, &host) < 0)					// delete !!!
-		error("ERROR: binder failed to receive host info");			
-	if (receiveIntMessage(i, &port) <0)
-		error("ERROR: binder failed to receive port info");
-	if (receiveStringMessage(i, &name) <0)					// delete !!!
-		error("ERROR: binder failed to receive function name");
-	if (receiveArrayMessage(i, argTypes) <0)					// delete !!!
-		error("ERROR: binder filed to receive argTypes");
-		
-	// now register the server & procedure
-	struct function tempFunction(name, argTypes);
-	struct server tempServer(host, port, i);
+	if (receiveStringMessage(i, &host) < 0)	{		// delete host later!!!			
+		returnMessage = "REGISTER_FAILURE";
+		returnValue = (-220);
+	}
+	if (receiveIntMessage(i, &port) <0){
+		returnMessage = "REGISTER_FAILURE";
+		returnValue = (-221);
+	}
+	if (receiveStringMessage(i, &name) <0){ 		// delete name later!!!
+		returnMessage = "REGISTER_FAILURE";
+		returnValue = (-222);
+	}
+	if (receiveArrayMessage(i, argTypes) <0){ 		// delete aryTypes later!!!
+		returnMessage = "REGISTER_FAILURE";
+		returnValue = (-223);
+	}
 	
-	// if the function not yet registered
-	if (functionMap.find(tempFunction) == functionMap.end()){
+	// if any failure occurs, send back response
+	if (strcmp(returnMessage, "REGISTER_FAULURE") == 0){
+		sendStringMessage(i, returnMessage);
+		sendStringMessage(i, returnValue);
+		return;		
+	}
+	
+	/*
+	
+		now register the server & procedure
+		build a function map where the key is the function
+	 
+	*/
+	
+	struct function tempFunction(name, argTypes);
+	struct server* tempServer = new server(host, port, i);	// keep on heap
+	
+	// if the (function,argTypes) not yet registered, add it to functionMap
+	// also, indicate success
+	if (functionMap.count(tempFunction) == 0){
+		cerr << "not found function " << *name << endl;
+
 		vector<struct server*> Servers;
-		Servers.push_back(&tempServer);
+		Servers.push_back(tempServer);
 		functionMap[tempFunction]  = make_pair(init_index, Servers);
 		
-		returnValue = 0;
+		returnValue = 0;	// no warning
 	}
-	// if the function already registered
+	// if the (function,argTypes) already registered
 	else{
+		cerr << "found function " << *name << endl;
+		
 		vector<struct server*>* Servers = &(functionMap[tempFunction].second);
 		
 		// check if server already exist
 		// if server exists, send warning -- update skeleton in rpc (later!)
-		for(int i = 0; i < Servers.size(); i++){
-			if (Servers[i] == tempServer){
-				// set warning
-				returnValue = ERROR_OVERRIDE_PROCEDURE;
+		int end = Servers->size();
+		for(int i = 0; i < end; i++){
+			if (*(Servers->at(i)) == *tempServer){
+				returnValue = (220);		// set warning - previously registered 
 				break;
 			}
 		}
 		// if server not exists, register
-		if (returnValue != ERROR_OVERRIDE_PROCEDURE){
-			Servers->push_back(&tempServer);
-			returnValue = 0;
+		if (returnValue != (220)){
+			Servers->push_back(tempServer);
+			returnValue = 0;				// no warning
 		}
 		
 	}
-	returnMessage = "REGISTER_SUCCESS";				// when is returnMessage = "REGISTER_FAILUER"????
+	returnMessage = "REGISTER_SUCCESS";				// when is returnMessage = "REGISTER_FAILURE"????
 	
-	if (sendStringMessage(i, returnMessage) < 0)
+	/*
+	
+		send back the success/failure message
+	
+	*/
+	if (sendStringMessage(i, returnMessage) < 0) {
+		returnMessage = "REGISTER_FAILURE";				// < ------------------- what ?! 
+		returnValue = (-224);
 		error("ERROR: binder failed to send back success/failure message");
-	if (sendIntMessage(i, returnValue) < 0)
+	}
+	if (sendIntMessage(i, returnValue) < 0){
+		returnMessage = "REGISTER_FAILURE";				// < ------------------- what ?! 
+		returnValue = (-225);
 		error("ERROR: binder failed to send back warning/error message");
+	}
 	
 }
 
@@ -204,16 +258,18 @@ static void hendleTerminate(int i /*fd*/, string* words){
 }
 
 
+/*
+	clean the map
+*/
 static void clearMap(){
 	cerr << "Starting to clean ... " << endl;
 	
-	map <struct function, pair<int, vector<struct server*> > >::iterator i;
 	for (i = functionMap.begin(); i != functionMap.end(); i++){
 		vector<server*>* Servers = &(i->second.second);
 		int end = Servers->size();
 		for (int j = 0; j < end; j++){
 			delete Servers->at(j)->host;
-			//cout << "next server port " << Servers->at(j+1)->port <<endl;
+			delete Servers->at(j);
 		}
 		
 		const struct function* Func  = &(i->first);
@@ -291,21 +347,24 @@ void work(int listener){
 						
 						// if server/binder message - REGISTER
 						if (*words == "REGISTER"){
-							handleRegister(i /*fd*/ );						
+							handleRegister(i /*fd*/ );
+							delete words;							
 						}
 						// if client/binder message - LOC_REQUEST
 						else if (*words == "LOC_REQUEST"){
-							handleRequest(i /*fd*/ );							
+							handleRequest(i /*fd*/ );
+							delete words;							
 						}
 						// if client/binder message - TERMINATE
 						else if (*words == "TERMINATE"){
 							// inform all servers to terminate
 							hendleTerminate(i /*fd*/, words);
+							delete words;
 							// close itself
 							close(i);
 							FD_CLR(i, &master);
 							// maybe clean up the map? 
-							functionMap.clear();
+							clearMap();
 						}
 						
 					}
