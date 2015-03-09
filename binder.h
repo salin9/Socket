@@ -16,22 +16,28 @@ struct function{
 	function(std::string* name, int* argTypes): name(name), argTypes(argTypes) {}
 
 	bool operator== (const function& other) const {
-		if (string(*name) == (*func.name)) return false;
+		if ((*name).compare(*other.name) != 0) return false;
 		int i=0;
+		
 		while (1){
-			//cout  << argTypes[i] << ", " << other.argTypes[i] <<endl;
 			if (argTypes[i] == 0 && other.argTypes[i] == 0) return true;
 			if (argTypes[i] == 0 || other.argTypes[i] == 0) return false;
 			if (argTypes[i] != other.argTypes[i]) return false;
 			i++;
 		}
-   }
+	}
+ 
 	bool operator< (const function& other) const {
-		if (string(*name) > (*func.name)) return false;
+		int result = (*name).compare(*other.name);
+		if (result > 0) return false;
 		
-	  	int i=0;
+	  	int i=0;		
 		while (1){
-			if (argTypes[i] == 0 && other.argTypes[i] == 0) return false;
+			if (argTypes[i] == 0 && other.argTypes[i] == 0){
+				// if name == other.name (result == 0), return false
+				// if name  < other.name (result < 0 ), return true
+				return (result < 0);
+			}
 			if (argTypes[i] == 0 ) return true;
 			if (other.argTypes[i] == 0) return false;
 			if (argTypes[i] > other.argTypes[i]) return false;
@@ -46,10 +52,9 @@ struct server{
 	std::string* host;	// server's host name
 	int port;			// server's port number
 	int sockfd;			// server's file descriptor
-	int valid;			// live: 1. terminated: 0
-	server(std::string* host, int port, int fd): host(host), port(port), sockfd(fd), valid(1) {}
-	bool operator== (const server& other) const {
-	   return (*host) == *(other.host)
+	server(std::string* host, int port, int fd): host(host), port(port), sockfd(fd) {}
+   	bool operator== (const server& other) const {
+		return ((*host).compare(*other.host) == 0
 			&& port == other.port
 			&& sockfd == other.sockfd);
 	}
