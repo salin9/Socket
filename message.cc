@@ -3,6 +3,8 @@
 #include <netinet/in.h>
 #include <cstring>
 #include <vector>
+
+#include "rpc.h"		// for definition of ARG_CHAR ... in getSize
 #include "message.h"
 using namespace std;
 
@@ -11,6 +13,43 @@ Error Types:
 	-300 : ERROR: failed to send message
 	-301 : ERROR: failed to receive message
 ***************************************************/
+
+/*
+	int getLength(int input);
+	
+	Decode input. If array, return length. If scalar, return 1
+*/
+int getLength(int input){	
+	int arrayflag = (input & 65535);		// check if we need an array
+	int scalar = (arrayflag==0)? 1: arrayflag;	
+	return scalar;
+}
+
+/*
+	int getSize(int input);
+	
+	Decode input and works as the same function as sizeof(input)
+*/
+int getSize(int input){
+	int type = ((input >> 16)  & 255);
+	
+	switch (type){
+		case ARG_CHAR:
+			return sizeof(char);
+		case ARG_SHORT:
+			return sizeof(short);
+		case ARG_INT:
+			return sizeof(int);
+		case ARG_LONG:
+			return sizeof(long);
+		case ARG_DOUBLE:
+			return sizeof(double);
+		case ARG_FLOAT:
+			return sizeof(float);
+		default:
+			return 0;
+	}
+}
 
 
 /*
@@ -79,7 +118,7 @@ int sendStringMessage(int sockfd, string words){
 	
 	Purpose: send a 0-terminated integer array, words, to sockfd
 	
-	1. keep sending until we reach terminal signal 0
+	1. keep sending until we reach terminate-signal 0
 	
  */ 
 int sendArrayMessage(int sockfd, int* words){
@@ -95,6 +134,38 @@ int sendArrayMessage(int sockfd, int* words){
 	}
 	return byteSent;
 }
+ 
+ 
+/*
+	int sendArgsMessage(int sockfd, int* types, void ** words);
+	
+	Purpose: Send a void** array, words, to sockfd. 
+		The type of words[i] is specified in types[i]
+		also work if words[i] is an array
+	
+	1. keep sending words[i] until we reach types' terminate-signal 0
+
+ */ 
+ int sendArgsMessage(int sockfd, int* types, void ** words){
+	int byteSent;
+	int size = 0;
+	while (types[size] != 0){ size++; }	// words.size = types.size - 1
+
+	for (int i=0; i<size; i++){
+		int size = getLength(types[i]) * getSize(types[i]);
+		
+		char* data = new char( size);
+		memcpy(data, words[i], size);
+
+		byteSent = send(sockfd, data, size, 0);		
+		delete data;	// free memory
+		if (byteSent < 0) 
+			return byteSent;
+	}	
+	
+	return byteSent;	
+}
+ 
  
  /*
 	int receiveStringMessage(int sockfd, string words);
@@ -126,7 +197,7 @@ int receiveStringMessage(int sockfd, string** words){
 		bzero(recvWords, length);
 		byteRecv = recv(sockfd, recvWords, length, 0);
 		if (byteRecv <= 0)
-			return (-301);
+			return (-302);
 		length -= byteRecv;
 		recvWords += byteRecv;
 	}
@@ -177,7 +248,7 @@ int receiveIntMessage(int sockfd, int** words){
 	
 	Purpose: receive a 0-terminated integer array, words, to sockfd
 	
-	1. keep receiving until we reach terminal signal 0
+	1. keep receiving until we reach terminate-signal 0
 	
 	*Aside: Need to delete array allocated*
 	
@@ -210,3 +281,29 @@ int receiveArrayMessage(int sockfd, int** words){
 	return byteSent;
 }
 
+
+/*
+	int receiveArgsMessage(int sockfd, int* types, void ** words);
+	
+	Purpose: receive a void** array, words, to sockfd. 
+		The type of words[i] is specified in types[i]
+		also work if words[i] is an array
+	
+	1. keep receiving words[i] until we reach type's terminate-signal 0 
+	
+	*Pre-requisite*: words has been allocated
+	
+ */ 
+int receiveArgsMessage(int sockfd, int* types, void ** words){
+	int byteSent;
+	int size = 0;
+	while (types[size] != 0){ size++; }		// words.size = types.size - 1
+	
+	for (int i=0; i<size; i++){	
+		byteSent = recv(sockfd, words[i], getLength(types[i]) * getSize(types[i]), 0);
+		if (byteSent < 0) 
+			return byteSent;
+	}
+	
+	return byteSent;	
+}

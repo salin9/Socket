@@ -7,15 +7,18 @@
 #include <unistd.h>		// gethostname
 #include <map>
 #include <vector>
-#include <utility>      // pair
-
-#include "binder.h"
+#include <utility>      // 
 
 using namespace std;
 
+// max simultaneous clients. no limit. ignore the parameter "backlog" of listen
+#define MAX_CLIENT		10
+// max host name length				  
+#define MAX_HOST_NAME	64	
+
 // store function-server map. 
 // -- vector<int> indicates the index in the serverVector
-map <struct function, pair<int, vector<int> > >functionMap;
+map <struct function, vector<int> > >functionMap;
 
 // stores servers' information
 vector<server*> serverVector;
@@ -34,7 +37,7 @@ static void error(const char *err){
 
 
 // initialize socket and listen.   ----- REUSE from A2 (file: stringServer.cc) -----
-int initializeSocket(){
+static int initializeSocket(){
 	int sockfd, port;
 	struct sockaddr_in address;
 	
@@ -60,7 +63,7 @@ int initializeSocket(){
 }
 
 // print the binder info: address and port.    ----- REUSE from A2 (file: stringServer.cc) -----
-int printBinderInfo(){ 
+static int printBinderInfo(){ 
 	//get machine name
 	char name[MAX_HOST_NAME+1];
 	if (gethostname(name, MAX_HOST_NAME) < 0)
@@ -110,7 +113,9 @@ static int handleRegister(int fd ){
 	string* name;
 	int* argTypes;
 	
-	if (receiveStringMessage(fd, &host) < 0)	{		// delete host later!!!			
+	int result = receiveStringMessage(fd, &host);	// delete host later!!!	
+	if ( result < 0)	{		
+		if (result == (-302)) delete host;
 		returnMessage = "REGISTER_FAILURE";
 		returnValue = (-220);
 	}
@@ -118,7 +123,9 @@ static int handleRegister(int fd ){
 		returnMessage = "REGISTER_FAILURE";
 		returnValue = (-221);
 	}
-	if (receiveStringMessage(fd, &name) <0){ 		// delete name later!!!
+	result = receiveStringMessage(fd, &name);		// delete name later!!!
+	if ( result <0){ 		
+		if (result == (-302)) delete name;
 		returnMessage = "REGISTER_FAILURE";
 		returnValue = (-222);
 	}
@@ -126,9 +133,20 @@ static int handleRegister(int fd ){
 		returnMessage = "REGISTER_FAILURE";
 		returnValue = (-223);
 	}
+
+	// check if any argTypes[i] are valid
+	int i = 0;
+	while (argTypes[i] != 0){
+		int type  = (argTpes[i] >> 16  & 255);
+		if ( type < 1 || type > 6){
+			returnMessage = "REGISTER_FAILURE";
+			returnValue = (-224);
+		}
+		i++;
+	}	
 	
 	// if any failure occurs, send back response
-	if (strcmp(returnMessage, "REGISTER_FAULURE") == 0){
+	if (strcmp(returnMessage, "REGISTER_FAILURE") == 0){
 		sendStringMessage(fd, returnMessage);
 		sendIntMessage(fd, returnValue);
 		return returnValue;		
@@ -146,7 +164,7 @@ static int handleRegister(int fd ){
 	
 	// check if server has already registered
 	int flag = 0;	// =1 if found the server record
-	int i = 0;
+	i = 0;
 	for (; i < serverVector.size(); i++){
 		if ((*serverVector[i]) == *tempServer) {
 			flag = 1;
@@ -224,12 +242,12 @@ static int handleRegister(int fd ){
 	*/
 	if (sendStringMessage(fd, returnMessage) < 0) {
 		returnMessage = "REGISTER_FAILURE";
-		returnValue = (-224);
+		returnValue = (-225);
 		error("ERROR: binder failed to send back success/failure message");
 	}
 	if (sendIntMessage(fd, returnValue) < 0){
 		returnMessage = "REGISTER_FAILURE";	
-		returnValue = (-224);
+		returnValue = (-225);
 		error("ERROR: binder failed to send back warning/error message");
 	}
 	
@@ -287,10 +305,10 @@ static int handleRequest(int fd){
 		returnValue = (-240);
 		
 		if (sendStringMessage(fd, returnMessage) < 0)
-			returnValue = (-224);
+			returnValue = (-225);
 			error("ERROR: binder failed to send failure message");
 		if (sendIntMessage(fd, returnValue) < 0)
-			returnValue = (-224);
+			returnValue = (-225);
 			error("ERROR: binder failed to send warning/error message");
 		
 	}
@@ -323,7 +341,7 @@ static int handleRequest(int fd){
 		
 		// find the index of the first available server by RR
 		struct server* temp = serverVector[serverIndex];
-		int fd = temp->sockfd;
+		string* host = temp->host;
 		int port = temp->port;
 		
 		cerr << "by RR, the next available server is " << *(temp->host) << endl;;
@@ -332,13 +350,13 @@ static int handleRequest(int fd){
 		returnValue = 0;
 		
 		if (sendStringMessage(fd, returnMessage) < 0)
-			returnValue = (-224);
+			returnValue = (-225);
 			error("ERROR: binder failed to send success message");
-		if (sendIntMessage(fd, fd) < 0)
-			returnValue = (-224);
+		if (sendStringMessage(fd, *host) < 0)
+			returnValue = (-225);
 			error("ERROR: binder failed to send fd number");
 		if (sendIntMessage(fd, port) < 0)
-			returnValue = (-224);
+			returnValue = (-225);
 			error("ERROR: binder failed to send port number");
 
 	}
@@ -384,7 +402,7 @@ static void hendleTerminate(int listener, string* words, FD_SET &master){
 /*
 	clean the serverVector and functionMap
 */
-static void clear(){
+static void clean(){
 	cerr << "Starting to clean ... " << endl;
 	
 	// try clear serverVector
@@ -411,7 +429,7 @@ static void clear(){
 /*
 	receive & send message from/to client or server
 */
-int work(int listener){
+static int work(int listener){
 	// select preparation	----- REUSE SELECT part from A2 (file: server.cc) -----
 	fd_set master;		// master file descriptor list - currently connected fd
 	fd_set read_fds;	// temp  file descriptor list for select()
@@ -455,14 +473,14 @@ int work(int listener){
 					string* words;					// by our mechanism, it should specify message type
 					int byteRead = receiveStringMessage(i, &words);	// remember to delete words after usage!!!
 					if (byteRead < 0){
-						close(i);					// SHOULD remove server (if i=server fd) from map !!!!!!!!!!!!!!!!!!! later
+						close(i);					// must be a client. since server is kept open until binder asks for temination
 						FD_CLR(i, &master);
 						delete words;
 						return (-212);
 					}
 					// else, if an attempt to receive a request fails, assume the client/server has quit
 					else if (byteRead == 0){
-						close(i);					// SHOULD remove server (if i=server fd) from map !!!!!!!!!!!!!!!!!!! later
+						close(i);
 						FD_CLR(i, &master);
 					}
 					// else, ok, we receive some request
@@ -488,7 +506,7 @@ int work(int listener){
 							hendleTerminate(listener, words, master);
 							delete words;
 							// maybe clean up serverVector and functionMap 
-							clear();
+							clean();
 							return 0;
 						}	
 					}
