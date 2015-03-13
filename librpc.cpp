@@ -8,11 +8,13 @@
 #include <cctype>       
 #include <sstream>
 
+#include "rpc.h"
 #include "message.h"
+#include "function.h"
 
 using namespace std;
 
-#define MAX_HOST_NAME 256
+#define MAX_HOST_NAME 64
 #define MAX_CLIENT  5
 
 
@@ -209,8 +211,7 @@ int rpcCall(char * name, int * argTypes, void ** args){
         request execution of a server procedure
 
     */
-    msg_type = "EXECUTE";
-
+    msg_type = "EXECUTE";   
     if(sendStringMessage(socket2, msg_type) < 0) return (-145);
 
     // send name
@@ -220,17 +221,14 @@ int rpcCall(char * name, int * argTypes, void ** args){
     // send argTypes
     if(sendArrayMessage(socket2, argTypes) < 0) return (-145);
     
+    // send args
+    if(sendArgsMessage(socket2, argTypes, args) < 0) return (-145);
 
     /*
 
-        send args
-        
-        convert all of the elements into string format, then send them out.
-
-    */
+        wait for response from server.
     
-
-
+    */
 
 
 }
@@ -330,7 +328,107 @@ int rpcInit(){
 
 }
 
+/*
 
+    writeToFile(char *name, int *argTypes, skeleton f)
+
+    When server receive the "REGISTER_SUCCESS" message from the binder,
+    server will write the skeleton with the name and argTypes into a skeleton data file.
+
+    Later when server call rpcExecute(), it will construct a local database
+    according to that file. 
+
+*/
+int writeToFile(char *name, int *argTypes, skeleton f){
+    /*
+
+        Get the port number first.
+    
+    */
+    int s = 3;
+
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+
+    if((getsockname(s, (struct sockaddr *)&addr, &len)) < 0){
+        cerr << "ERROR getting socket address" << endl;
+        return -1;
+    }
+
+    int portnum = ntohs(addr.sin_port);
+
+    cout << "debug, writToFile: SERVER_PORT " << portnum << endl;
+
+    /*
+
+        Use the port number to create a unique file name for the data file,
+        since every program in the same system will have a different port number
+        with others. 
+    
+    */
+    stringstream sstm;
+    string filename;
+
+    sstm << "skeleton_data_for_server_" << portnum << ".txt";
+    filename = sstm.str();
+
+    /*
+
+        Open a file with out and app option.
+        out means output.
+        app means the new data will append to the end of the file.
+
+    */
+    ofstream outfile;
+    outfile.open(filename.c_str(), ios::out | ios::app);
+
+    /*
+    
+        Data Format:
+
+        name    size_of_argTypes    argTypes    skeleton  
+
+    */
+    outfile << name << " ";
+
+    int size = 0;
+    for(int i = 0; ; i++){
+      size += 1;
+      if(argTypes[i] == 0) break;
+    }
+
+    outfile << size << " ";
+
+    for(int i = 0; ; i++){
+      if(argTypes[i] == 0){
+        outfile << 0 << " ";
+        break;
+      }
+      outfile << argTypes[i] << " ";
+    }
+
+
+    /*
+
+        There is problem here.
+        Not sure which data should we store for skeleton.
+
+        &f ?    f ?     *f ?
+
+    */
+
+    cout << "debug: &f is " << &f << endl;
+
+    //skeleton ptr = f;
+
+    //string address = convertPointerToStringAddress(ptr);
+
+    outfile << &f << endl;
+
+    outfile.close();
+
+    return 0;
+}
 /*
     
     int rpcRegister(char *name, int *argTypes, skeleton f);
@@ -408,42 +506,64 @@ int rpcRegister(char *name, int *argTypes, skeleton f){
     if (receiveStringMessage(fd_binder, &response_type) < 0) return (-123);      
     if (receiveIntMessage(fd_binder, &ret) < 0) return (-123);
 
-
-    /*
-
-
-        need some thing here to store the procedure in the server.
-
-        We can create an external file under the server folder
-        to store the address of procedure.
-
-
-    */
+    // success, then store the data into local file
+    if(*response_type == "REGISTER_SUCCESS"){
+        ret = writeToFile(name, argTypes, *f);
+    } 
 
     return ret;
 }
 
 
 // helper for execution
-void handleExecute(int fd){
+int handleExecute(int fd, map <struct function, *skeleton> functionMap){
 
     string* name;
     int* argTypes;
-    string returnMessage = "";
+    void** args;
 
     // procedure name
-
-    if (receiveStringMessage(fd, &name) <0) return (-170);
+    if(receiveStringMessage(fd, &name) < 0) return (-170);
 
     // argument types
-
-    if (receiveArrayMessage(fd, argTypes) <0) return (-170);
+    if(receiveArrayMessage(fd, argTypes) < 0) return (-170);
 
     // arguments
+    if(receiveArgsMessage(fd, argTypes, args) < 0) return (-170);
+
+    /*
+
+        get the skeleton from the map.
+
+    */ 
+
+    struct function tempFunction(name, argTypes);
+    if(functionMap.count(tempFunction) == 0){
+
+    }
+    
+    return 0;
 
 
+}
 
+/*
+    
+    Helper function which convert an memory address in string format 
+    into a pointer.
 
+*/
+template <typename T>
+T* convertAddressStringToPointer(const std::string& address)
+{
+  std::stringstream ss;
+  ss << address;
+  long long tmp(0);
+  if(!(ss >> tmp)){
+    cerr << "ERROR : Failed - invalid address!" << endl;
+    exit(-1);
+  }
+  return reinterpret_cast<T*>(tmp);
 }
 
 
@@ -470,8 +590,103 @@ void handleExecute(int fd){
 */
 int rpcExecute(void){
 
+    // server local database
+    map <struct function, *skeleton> functionMap;
+
     // this socket id is for clients.
     int listener = 3;
+
+    /*
+
+        Get the server port number first in order to get the data file name.
+
+    */
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    if((getsockname(listener, (struct sockaddr *)&addr, &len)) < 0){
+        cerr << "ERROR getting socket address" << endl;
+        return -1;
+    }
+
+    int portnum = ntohs(addr.sin_port);
+
+    cout << "debug, rpcExecute(): SERVER_PORT " << portnum << endl;
+
+    /*
+    
+        Read the data file and construct the local database.     
+
+    */
+    stringstream sstm;
+    string filename;
+    sstm << "data_for_server_" << portnum << ".txt";
+    filename = sstm.str();
+
+    string line;
+    ifstream myfile(filename.c_str());
+    if (myfile.is_open()){
+        while(getline(myfile,line)){
+            stringstream ss;
+            ss << line;
+
+            // function name
+            string name;
+            ss >> name;
+
+            // size of argTypes
+            string size;
+            ss >> size;
+            int length = atoi(size.c_str());
+
+            // create argTypes
+            int argTypes[length];
+            string type;
+            for(int i = 0; i < length; i++){
+                ss >> type;
+                argTypes[i] = atoi(type.c_str());
+            }
+
+
+            /*
+
+                Get the skeleton info here.
+                Still have problem!
+
+            */
+            ss >> type;
+
+            cout << type << endl;
+            skeleton* f = convertAddressStringToPointer<skeleton>(type);
+
+            cout << "\ndebug:\n" << name << " " << length << '\n';
+
+            for(int i = 0; i < length; i++){
+                cout << argTypes[i] << " ";
+            }
+
+            cout << &f << "\n\n";
+
+            struct function tempFunction(name, argTypes);
+            // we don't need to care about if the functionMap has record or not.
+            // If not, we create it.
+            // If yes, we update it.
+            functionMap[tempFunction] = f;
+
+        }
+        myfile.close();
+    } 
+    else {
+        cout << "Unable to open file\n";
+        return (-165);
+    }
+
+
+    /*
+
+        After constructing the database successfully,
+        server can handle the requests from clients now.
+    
+    */
 
     fd_set master;      // master file descriptor list - currently connected fd
     fd_set read_fds;    // temp  file descriptor list for select()
@@ -510,17 +725,17 @@ int rpcExecute(void){
                 }
                 // else, if ready to read from client, handle new data
                 else{
-                    string* words;                  // by our mechanism, it should specify message type
-                    int byteRead = receiveStringMessage(i, &words); // remember to delete words after usage!!!
+                    string* words;                  
+                    int byteRead = receiveStringMessage(i, &words); 
                     if (byteRead < 0){
-                        close(i);                   // SHOULD remove server (if i=server fd) from map !!!!!!!!!!!!!!!!!!! later
+                        close(i);                   
                         FD_CLR(i, &master);
                         delete words;
                         return (-162);
                     }
                     // else, if an attempt to receive a request fails, assume the client has quit
                     else if (byteRead == 0){
-                        close(i);                   // SHOULD remove server (if i=server fd) from map !!!!!!!!!!!!!!!!!!! later
+                        close(i);                
                         FD_CLR(i, &master);
                     }
                     // else, ok, we receive some request
@@ -529,9 +744,12 @@ int rpcExecute(void){
                         int returnValue;
                         
                         // if server/client message - EXECUTE
-                        if (*words == "EXECUTE"){
+                        if(*words == "EXECUTE"){
                             delete words;
-                            handleExecute(i /*fd*/ );
+                            int ret = handleExecute(i, &functionMap);
+                        }
+                        if(*words == "TERMINATE"){
+                            delete words;
                         }
                     }
                 }// END         
