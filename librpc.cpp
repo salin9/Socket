@@ -1,12 +1,15 @@
 #include <iostream>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <netdb.h>  
 #include <netinet/in.h>
 #include <cstring>
 #include <stdlib.h>     
 #include <unistd.h>     
 #include <cctype>       
-#include <sstream>
+#include <sstream>    
+#include <cstdlib> 
+#include <pthread.h>
 
 #include "rpc.h"
 #include "message.h"
@@ -16,6 +19,19 @@ using namespace std;
 
 #define MAX_HOST_NAME 64
 #define MAX_CLIENT  5
+
+
+/*
+
+    variables used in rpcExecute()
+
+*/
+pthread_t thread;
+pthread_mutex_t lock;
+bool terminated = false;
+
+// server local database
+map <struct function, skeleton > >functionMap;
 
 
 /*
@@ -109,10 +125,7 @@ using namespace std;
 */
 int rpcCall(char * name, int * argTypes, void ** args){
     
-
     //  Connect to the binder first
-     
-
     char* binder_address = getenv("BINDER_ADDRESS");
     if(binder_address == NULL) return (-140);
     
@@ -141,56 +154,77 @@ int rpcCall(char * name, int * argTypes, void ** args){
     }
     
     
-     
     //  After connecting to binder, send location request message
-
 
     // send message type first
     string msg_type = "LOC_REQUEST";
-    if(sendStringMessage(socket1, msg_type) < 0) return (-145);
-
+    if(sendStringMessage(socket1, msg_type) < 0){
+        close(socket1);
+        return (-145);
+    }
     // send name
     string str1(name);
-    if(sendStringMessage(socket1, str1) < 0) return (-145);
+    if(sendStringMessage(socket1, str1) < 0){
+        close(socket1);
+        return (-145);
+    }
 
     // send argTypes
-    if(sendArrayMessage(socket1, argTypes) < 0) return (-145);
+    if(sendArrayMessage(socket1, argTypes) < 0){
+        close(socket1);
+        return (-145);
+    }
     
      
     //    Get the binder's response
-     
-    
+
     string* response_type;
     int* argTypes;
     
-    if(receiveStringMessage(socket1, &response_type) < 0) return (-146);    
+    if(receiveStringMessage(socket1, &response_type) < 0){
+        close(socket1);
+        return (-146); 
+    }    
 
     if(*response_type == "LOC_FAILURE"){
         int errMsg;
-        if (receiveIntMessage(socket1, &errMsg) < 0) return (-146);
+        if (receiveIntMessage(socket1, &errMsg) < 0){
+            close(socket1);
+            return (-146); 
+        }
+        close(socket1);
         return errMsg;
     }
 
     
     // LOC_SUCCESS : server_identifier, port
     string* server_identifier;
-    if(receiveStringMessage(socket1, &server_identifier) < 0) return (-146);
+    if(receiveStringMessage(socket1, &server_identifier) < 0){
+        close(socket1);
+        return (-146); 
+    }
     char* server_address = (*server_identifier).c_str();
     cout << "debug: server_address: " << server_address << endl;
 
     int server_port;
-    if (receiveIntMessage(socket1, &server_port) < 0) return (-146);
+    if (receiveIntMessage(socket1, &server_port) < 0){
+        close(socket1);
+        return (-146); 
+    }
     cout << "debug: server_port: " << server_port << endl;
     
 
-    //      connect to server
 
+    //      connect to server
     
     struct sockaddr_in sa;
     struct hostent *server;
     int socket2;
 
-    if ((server = gethostbyname(server_address)) == NULL) return (-147);
+    if ((server = gethostbyname(server_address)) == NULL){
+        close(socket1);
+        return (-147);
+    } 
     
     memset(&sa, 0, sizeof(struct sockaddr_in));
 
@@ -198,9 +232,13 @@ int rpcCall(char * name, int * argTypes, void ** args){
     sa.sin_family = server->h_addrtype;
     sa.sin_port = htons(server_port);
 
-    if ((socket2 = socket(AF_INET, SOCK_STREAM, 0)) < 0) return (-143);
+    if ((socket2 = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        close(socket1);
+        return (-143);
+    }
 
     if (connect(socket2, (struct sockaddr*)&sa, sizeof(struct sockaddr_in)) < 0) {     /* connect */
+        close(socket1);
         close(socket2);
         return (-148);
     }
@@ -212,24 +250,83 @@ int rpcCall(char * name, int * argTypes, void ** args){
 
     */
     msg_type = "EXECUTE";   
-    if(sendStringMessage(socket2, msg_type) < 0) return (-145);
-
+    if(sendStringMessage(socket2, msg_type) < 0){
+        close(socket1);
+        close(socket2);
+        return (-145);
+    }
     // send name
     string str2(name);
-    if(sendStringMessage(socket2, str2) < 0) return (-145);
-
+    if(sendStringMessage(socket2, str2) < 0){
+        close(socket1);
+        close(socket2);
+        return (-145);
+    }
     // send argTypes
-    if(sendArrayMessage(socket2, argTypes) < 0) return (-145);
+    if(sendArrayMessage(socket2, argTypes) < 0){
+        close(socket1);
+        close(socket2);
+        return (-145);
+    }
     
     // send args
-    if(sendArgsMessage(socket2, argTypes, args) < 0) return (-145);
+    if(sendArgsMessage(socket2, argTypes, args) < 0){
+        close(socket1);
+        close(socket2);
+        return (-145);
+    }
+
 
     /*
 
-        wait for response from server.
+        get response from server.
     
     */
+    if(receiveStringMessage(socket2, &response_type) < 0){
+        close(socket1);
+        close(socket2);
+        return (-146);
+    } 
+    if(*response_type == "EXECUTE_FAILURE"){
+        int errMsg;
+        if (receiveIntMessage(socket2, &errMsg) < 0){
+            close(socket1);
+            close(socket2);
+            return (-146);
+        } 
+        close(socket1);
+        close(socket2);
+        return errMsg;
+    }
 
+    // EXECUTE_SUCCESS : name, argTypes, args
+    if(*response_type == "EXECUTE_SUCCESS"){
+        string* ret_name;
+        if(receiveStringMessage(socket2, &ret_name) < 0){
+            close(socket1);
+            close(socket2);
+            return (-146);
+        } 
+        // may need some test case here... like check ret_name equal to name or not.
+
+        if(receiveArrayMessage(socket2, argTypes) < 0){
+            close(socket1);
+            close(socket2);
+            return (-146);
+        } 
+
+        if(receiveArgsMessage(socket2, argTypes, args) < 0){
+            close(socket1);
+            close(socket2);
+            return (-146);
+        } 
+
+        close(socket1);
+        close(socket2);
+
+        return 0;
+    }
+    
 
 }
 
@@ -385,7 +482,6 @@ int writeToFile(char *name, int *argTypes, skeleton f){
     /*
     
         Data Format:
-
         name    size_of_argTypes    argTypes    skeleton  
 
     */
@@ -514,10 +610,11 @@ int rpcRegister(char *name, int *argTypes, skeleton f){
     return ret;
 }
 
-
-// helper for execution
-int handleExecute(int fd, map <struct function, *skeleton> functionMap){
-
+/*
+    helper for execution
+    
+*/
+int handleExecute(int fd){
     string* name;
     int* argTypes;
     void** args;
@@ -536,15 +633,44 @@ int handleExecute(int fd, map <struct function, *skeleton> functionMap){
         get the skeleton from the map.
 
     */ 
-
     struct function tempFunction(name, argTypes);
-    if(functionMap.count(tempFunction) == 0){
 
+    // Can't find the function.
+    if(functionMap.count(tempFunction) == 0){
+        string returnMessage = "EXECUTE_FAILURE";
+        if (sendStringMessage(fd, returnMessage) < 0) return (-171);
+
+        int returnValue = -172;
+        if(sendIntMessage(fd, returnValue) < 0) return (-171);
     }
     
+    skeleton f = functionMap[tempFunction];
+
+    int ret = (*f)(argTypes, args);
+
+    if (ret >= 0) { 
+        // send the result back to client
+        string msg_type = "EXECUTE_SUCCESS";   
+        if(sendStringMessage(fd, msg_type) < 0) return (-171);
+
+        // send name
+        if(sendStringMessage(fd, *name) < 0) return (-171);
+
+        // send argTypes
+        if(sendArrayMessage(fd, argTypes) < 0) return (-171);
+        
+        // send args
+        if(sendArgsMessage(fd, argTypes, args) < 0) return (-171);
+    }
+    else {
+        string returnMessage = "EXECUTE_FAILURE";
+        if (sendStringMessage(fd, returnMessage) < 0) return (-171);
+
+        int returnValue = -173;
+        if(sendIntMessage(fd, returnValue) < 0) return (-171);
+    }
+
     return 0;
-
-
 }
 
 /*
@@ -567,35 +693,14 @@ T* convertAddressStringToPointer(const std::string& address)
 }
 
 
-
 /*
 
-    int rpcExecute(void);
+    load the data file and set up the local database for server.
 
-    The server finally calls rpcExecute, which will wait for and receive requests,
-    forward them to skeletons, which are expected to unmarshall the messages, call the 
-    appropriate procedures as requested by the clients, and marshall the returns.
-    Then rpcExectue sends the results back to the client.
-
-    Parameters:
-        1. Return value (int):
-            == 0 means normally requested termination (the binder has requested termination of the server)
-            <  0 means failure (e.g., if there are no registered procedures to serve)
-    
-    Note:
-        rpcExecute should be able to handle multiple requests from clients without blocking,
-        so that a slow server func will not choke the whole server.
-
-        To implement the register func you will need to send a register message to the binder.
 */
-int rpcExecute(void){
-
-    // server local database
-    map <struct function, *skeleton> functionMap;
-
+int setupDatabase(){
     // this socket id is for clients.
     int listener = 3;
-
     /*
 
         Get the server port number first in order to get the data file name.
@@ -609,9 +714,7 @@ int rpcExecute(void){
     }
 
     int portnum = ntohs(addr.sin_port);
-
-    cout << "debug, rpcExecute(): SERVER_PORT " << portnum << endl;
-
+    cout << "debug, setupDatabase(): SERVER_PORT " << portnum << endl;
     /*
     
         Read the data file and construct the local database.     
@@ -645,8 +748,6 @@ int rpcExecute(void){
                 ss >> type;
                 argTypes[i] = atoi(type.c_str());
             }
-
-
             /*
 
                 Get the skeleton info here.
@@ -658,7 +759,7 @@ int rpcExecute(void){
             cout << type << endl;
             skeleton* f = convertAddressStringToPointer<skeleton>(type);
 
-            cout << "\ndebug:\n" << name << " " << length << '\n';
+            cout << "\ndebug, setupDatabase : \n" << name << " " << length << '\n';
 
             for(int i = 0; i < length; i++){
                 cout << argTypes[i] << " ";
@@ -670,23 +771,25 @@ int rpcExecute(void){
             // we don't need to care about if the functionMap has record or not.
             // If not, we create it.
             // If yes, we update it.
-            functionMap[tempFunction] = f;
+            functionMap[tempFunction] = *f;
 
         }
         myfile.close();
     } 
     else {
-        cout << "Unable to open file\n";
+        cerr << "Unable to open file\n";
         return (-165);
     }
+}
 
 
-    /*
+/*
+ 
+    eventHandler: handle the requests from clients.
 
-        After constructing the database successfully,
-        server can handle the requests from clients now.
-    
-    */
+*/
+void* eventHandler(void *arg){
+    int listener = *((int*)arg);
 
     fd_set master;      // master file descriptor list - currently connected fd
     fd_set read_fds;    // temp  file descriptor list for select()
@@ -704,7 +807,13 @@ int rpcExecute(void){
     // keep track of the mas fd. so far, it's listener
     fdmax = listener;
     
-    while (1) {
+    while(true) {
+        // Do we really need this lock?!
+        // Not sure :)
+        pthread_mutex_lock(&lock);
+        if(terminated) break;
+        pthread_mutex_unlock(&lock);
+
         read_fds = master;
         
         if (select(fdmax+1, &read_fds, NULL, NULL, NULL) <0) return (-160);
@@ -739,23 +848,93 @@ int rpcExecute(void){
                         FD_CLR(i, &master);
                     }
                     // else, ok, we receive some request
-                    else{       
-                        string returnMessage;
-                        int returnValue;
-                        
+                    else{
                         // if server/client message - EXECUTE
                         if(*words == "EXECUTE"){
                             delete words;
-                            int ret = handleExecute(i, &functionMap);
-                        }
-                        if(*words == "TERMINATE"){
-                            delete words;
+                            ret = handleExecute(i);
                         }
                     }
                 }// END         
             }// END new incoming data (fd)
         }// END fd loop
     } //END while
+    
+    close(listener);
+
+    return NULL;
+}
+
+
+
+/*
+
+    int rpcExecute(void);
+
+    The server finally calls rpcExecute, which will wait for and receive requests,
+    forward them to skeletons, which are expected to unmarshall the messages, call the 
+    appropriate procedures as requested by the clients, and marshall the returns.
+    Then rpcExectue sends the results back to the client.
+
+    Parameters:
+        1. Return value (int):
+            == 0 means normally requested termination (the binder has requested termination of the server)
+            <  0 means failure (e.g., if there are no registered procedures to serve)
+    
+    Note:
+        rpcExecute should be able to handle multiple requests from clients without blocking,
+        so that a slow server func will not choke the whole server.
+
+        To implement the register func you will need to send a register message to the binder.
+*/
+int rpcExecute(void){
+    
+    int ret = setupDatabase();
+    if(ret < 0) return ret;
+
+    // this socket id is for clients.
+    int fd_client = 3;
+    int fd_binder = 4;
+    /*
+
+        After constructing the database successfully,
+        create a new thread to handle the requests from clients.
+    
+    */
+    ret = pthread_create(&thread, NULL, &eventHandler, &fd_client);
+    if(ret) return ret;
+    /*
+
+        Wait for binder's terminate message
+
+    */
+    string* msg;
+
+    while(true){
+        if (receiveStringMessage(fd_binder, &msg) < 0) return (-170);
+
+        /*
+
+            Question here.
+            Since the server never close the connection to binder,
+            what should we authticate here?
+
+        */
+
+        // terminate, then break the loop
+        if(*msg == "TERMINATE"){
+            // Do we really need this lock?!
+            // Not sure :)
+            pthread_mutex_lock(&lock);
+            terminated = true;
+            pthread_mutex_unlock(&lock);
+            break;
+        } 
+    }
+
+    pthread_join(thread, NULL);
+
+    return 0;
 }
 
 
@@ -776,6 +955,42 @@ int rpcExecute(void){
 */
 int rpcTerminate(void){
 
-
+    //  Connect to the binder first
+    char* binder_address = getenv("BINDER_ADDRESS");
+    if(binder_address == NULL) return (-180);
     
+    int portnum = atoi(getenv("BINDER_PORT"));
+    if(portnum == 0) return (-181);
+    
+    struct sockaddr_in sockaddr1;
+    struct hostent *binder;
+    int socket1;
+    
+    if ((binder = gethostbyname(binder_address)) == NULL) return (-182);
+    
+    memset(&sockaddr1, 0, sizeof(struct sockaddr_in));
+    
+    memcpy((char *)&sockaddr1.sin_addr, binder->h_addr, binder->h_length); /* set address */
+    sockaddr1.sin_family = binder->h_addrtype;
+    sockaddr1.sin_port = htons(portnum);
+    
+    // create the socket for connection to the binder.
+    if ((socket1 = socket(AF_INET, SOCK_STREAM, 0)) < 0) return (-183);
+    
+    // connect to the binder.
+    if (connect(socket1, (struct sockaddr*)&sockaddr1, sizeof(struct sockaddr_in)) < 0) {
+        close(socket1);
+        return (-184);
+    }
+    
+    
+    //  After connecting to binder, send terminate request message
+    string msg_type = "TERMINATE";
+    if(sendStringMessage(socket1, msg_type) < 0){
+        close(socket1);
+        return (-185);
+    }
+
+    close(socket1);
+    return 0;
 }
