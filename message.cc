@@ -8,11 +8,11 @@
 #include "message.h"
 using namespace std;
 
-/**************************************************
+/*///////////////////////////////////////////////////
 Error Types:
 	-300 : ERROR: failed to send message
 	-301 : ERROR: failed to receive message
-***************************************************/
+*////////////////////////////////////////////////////
 
 /*
 	int getLength(int input);
@@ -94,14 +94,11 @@ int sendStringMessage(int sockfd, string words){
  */
  int sendIntMessage(int sockfd, int words){
 	 // first send the size of words
-	 cerr << "words to be sent: " << words << endl;
 	int words_len = sizeof(int) ;
 	int words_len_htonl = htonl(words_len);
 	int byteSent = send(sockfd, &words_len_htonl, sizeof(int), 0);
 	if (byteSent <= 0) 
 		return (-300);
-	
-	cerr << "sent words_len " << words_len <<endl;
 	
 	// then send integer
 	int sendInt = htonl(words);
@@ -160,7 +157,7 @@ int sendArrayMessage(int sockfd, int* words){
 		byteSent = send(sockfd, data, size, 0);		
 		delete data;	// free memory
 		if (byteSent < 0) 
-			return byteSent;
+			return (-300);
 	}	
 	
 	return byteSent;	
@@ -221,7 +218,7 @@ int receiveStringMessage(int sockfd, string** words){
 	*Aside: Need to delete integer allocated*
 	
  */
-int receiveIntMessage(int sockfd, int** words){
+int receiveIntMessage(int sockfd, int* words){
 	// first receive the size of integer
 	int words_len;
 	bzero(&words_len, sizeof(int));
@@ -238,7 +235,7 @@ int receiveIntMessage(int sockfd, int** words){
 	if (byteRecv < 0)
 		return (-301);
 	
-	*words = new int(ntohl(recvInt));
+	*words = ntohl(recvInt);
 	
 	return byteRecv;
 }
@@ -302,7 +299,7 @@ int receiveArgsMessage(int sockfd, int* types, void ** words){
 	for (int i=0; i<size; i++){	
 		byteSent = recv(sockfd, words[i], getLength(types[i]) * getSize(types[i]), 0);
 		if (byteSent < 0) 
-			return byteSent;
+			return (-301);
 	}
 	
 	return byteSent;	

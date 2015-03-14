@@ -9,7 +9,9 @@
 #include <vector>
 #include <utility>      // 
 
-#include <function.h>
+
+#include "message.h"
+#include "function.h"
 
 using namespace std;
 
@@ -20,7 +22,7 @@ using namespace std;
 
 // store function-server map. 
 // -- vector<int> indicates the index in the serverVector
-map <struct function, vector<int> > >functionMap;
+map <struct function, vector<int> > functionMap;
 
 // stores servers' information
 vector<server*> serverVector;
@@ -65,7 +67,7 @@ static int initializeSocket(){
 }
 
 // print the binder info: address and port.    ----- REUSE from A2 (file: stringServer.cc) -----
-static int printBinderInfo(){ 
+static int printBinderInfo(int sock){ 
 	//get machine name
 	char name[MAX_HOST_NAME+1];
 	if (gethostname(name, MAX_HOST_NAME) < 0)
@@ -131,7 +133,7 @@ static int handleRegister(int fd ){
 		returnMessage = "REGISTER_FAILURE";
 		returnValue = (-222);
 	}
-	if (receiveArrayMessage(fd, argTypes) <0){ 		// delete aryTypes later!!!
+	if (receiveArrayMessage(fd, &argTypes) <0){ 		// delete aryTypes later!!!
 		returnMessage = "REGISTER_FAILURE";
 		returnValue = (-223);
 	}
@@ -139,7 +141,7 @@ static int handleRegister(int fd ){
 	// check if any argTypes[i] are valid
 	int i = 0;
 	while (argTypes[i] != 0){
-		int type  = (argTpes[i] >> 16  & 255);
+		int type  = (argTypes[i] >> 16  & 255);
 		if ( type < 1 || type > 6){
 			returnMessage = "REGISTER_FAILURE";
 			returnValue = (-224);
@@ -148,7 +150,7 @@ static int handleRegister(int fd ){
 	}	
 	
 	// if any failure occurs, send back response
-	if (strcmp(returnMessage, "REGISTER_FAILURE") == 0){
+	if (returnMessage.compare("REGISTER_FAILURE") == 0){
 		sendStringMessage(fd, returnMessage);
 		sendIntMessage(fd, returnValue);
 		return returnValue;		
@@ -195,7 +197,7 @@ static int handleRegister(int fd ){
 			RRqueue.push_back(count);
 		}
 		
-		functionMap[tempFunction2] = index;
+		functionMap[tempFunction] = index;
 		
 		returnValue = 0;	// no warning
 		
@@ -282,13 +284,13 @@ static int handleRequest(int fd){
 		returnMessage = "LOC_FAILURE";
 		returnValue = (-222);
 	}
-	if (receiveArrayMessage(fd, argTypes) <0){				// delete !!!
+	if (receiveArrayMessage(fd, &argTypes) <0){				// delete !!!
 		returnMessage = "LOC_FAILURE";
 		returnValue = (-223);
 	}
 	
 	// if any failure occurs, send back response
-	if (returnMessage.compare("LOC_FAILURE") == 0)){
+	if (returnMessage.compare("LOC_FAILURE") == 0){
 		sendStringMessage(fd, returnMessage);
 		sendIntMessage(fd, returnValue);
 		return returnValue;		
@@ -376,7 +378,7 @@ static int handleRequest(int fd){
 	-- after all servers terminate, the binder terminates
 	
 */
-static void hendleTerminate(int listener, string* words, FD_SET &master){
+static void hendleTerminate(int listener, string* words, fd_set &master){
 	
 	map <struct function, vector<int> >::iterator i;
 	
@@ -526,7 +528,7 @@ int main(){
 	if (listener < 0) return listener;
 	
 	// print binder's IP and port
-	int result = printBinderInfo()
+	int result = printBinderInfo(listener);
 	if (result < 0) return result; 
 	
 	// listen

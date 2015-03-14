@@ -8,12 +8,14 @@ struct function{
 	std::string* name;		// function name
 	int* argTypes;			// function arguments' types
 	int* argLength;			// function arguments' length
+	int size;
 	
 	function(std::string* name, int* argTypes): name(name), argTypes(argTypes) {
 		int i=0;
 		while (argTypes[i] != 0){
 			i++;
 		}
+		size = i;
 		argLength = new int[i];		// argLength has 1 element less than argTypes. - remember to delete it
 		int j = 0;
 		while (j < i){
@@ -25,7 +27,7 @@ struct function{
 
 	bool operator== (const function& other) const {
 		if ((*name).compare(*other.name) != 0) return false;
-		if (argTypes->size() != other.argTypes->size()) return false;
+		if (size != other.size) return false;
 		
 		int i=0;
 		while (1){
@@ -48,7 +50,7 @@ struct function{
 		// flag1 <  0: name  < other.name
 		if (flag1 > 0) return false;
 		
-		if (argTypes->size() > other.argTypes->size()) return false;
+		if (size > other.size) return false;
 		
 	  	int i=0;
 		int flag2 = 0;	// 0: same type all the way. 1: some length > other length
