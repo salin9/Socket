@@ -1,19 +1,49 @@
-CXX = g++
+CXX	= g++
+CXXFLAG	= -g -Wall -MMD
+MAKEFILE_NAME = ${firstword ${MAKEFILE_LIST}}
 
-all:  binder librpc.a
+BINDEROBJECTS = binder.o message.o
+BINDERDEPENDS = ${BINDEROBJECTS:.o=.d}
+BINDEREXEC = binder
 
-librpc.a: librpc.o message.o
+SERVEROBJECTS = server.o server_functions.o server_function_skels.o
+SERVREDEPENDS = ${SERVEROBJECTS:.o=.d}
+SERVEREXEC = server
+
+CLIENTOBJECTS = client1.o
+CLIENTDEPENDS = ${CLIENTOBJECTS:.o=.d}
+CLIENTEXEC = client1
+
+LIB = librpc.a
+LIBOBJECTS = librpc.o message.o
+LIBDEPENDS = ${LIBOBJECTS: .o=.d}
+
+EXECS = ${BINDEREXEC} ${SERVEREXEC} ${CLIENTEXEC}
+
+all : ${BINDEREXEC} ${LIB}
+
+${LIB}: ${LIBOBJECTS}
 	ar -rcs $@ $^
 
-binder: binder.o message.o
-	${CXX} binder.cc message.cc -o binder
+${BINDEREXEC}: ${BINDEROBJECTS}
+	${CXX} $^ -o $@
+	
+${BINDEROBJECTS} : ${MAKEFILE_NAME}
 
-client: client.o
-	${CXX} client.cc -o client librpc.a
+${SERVEREXEC}: ${SERVEROBJECTS} librpc.a
+	${CXX} -L. $^ -lrpc -o $@
 
-server: server.o server_functions.o server_function_skels.o
-	${CXX} -o server server.o server_functions.o server_function_skels.o librpc.a
+${SERVEROBJECTS} : ${MAKEFILE_NAME}
+	
+${CLIENTEXEC}: ${CLIENTOBJECTS} librpc.a
+	${CXX} -L. $^ -lrpc -o $@
+
+${CLIENTOBJECTS} : ${MAKEFILE_NAME}
+
+-include ${DEPENDS}
 
 clean:
-	rm -f *.o *.a binder server client *.gch
+	rm -f *.o *.d ${EXECS} ${LIB}
+
+.PHONY : all clean
 
