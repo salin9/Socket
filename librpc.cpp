@@ -8,9 +8,13 @@
 #include <cctype>       
 #include <sstream>
 
+#include "rpc.h"
+#include "message.h"
+#include "function.h"
+
 using namespace std;
 
-#define MAX_HOST_NAME 256
+#define MAX_HOST_NAME 64
 #define MAX_CLIENT  5
 
 
@@ -105,127 +109,127 @@ using namespace std;
 */
 int rpcCall(char * name, int * argTypes, void ** args){
     
-    /*
-    
-     Connect to the binder first
+
+    //  Connect to the binder first
      
-    */
+
     char* binder_address = getenv("BINDER_ADDRESS");
     if(binder_address == NULL) return (-140);
     
     int portnum = atoi(getenv("BINDER_PORT"));
     if(portnum == 0) return (-141);
     
-    struct sockaddr_in sockaddr2;
+    struct sockaddr_in sockaddr1;
     struct hostent *binder;
     int socket1;
     
     if ((binder = gethostbyname(binder_address)) == NULL) return (-142);
     
-    memset(&sockaddr2, 0, sizeof(struct sockaddr_in));
+    memset(&sockaddr1, 0, sizeof(struct sockaddr_in));
     
-    memcpy((char *)&sockaddr2.sin_addr, binder->h_addr, binder->h_length); /* set address */
-    sockaddr2.sin_family = binder->h_addrtype;
-    sockaddr2.sin_port = htons(portnum);
+    memcpy((char *)&sockaddr1.sin_addr, binder->h_addr, binder->h_length); /* set address */
+    sockaddr1.sin_family = binder->h_addrtype;
+    sockaddr1.sin_port = htons(portnum);
     
     // create the socket for connection to the binder.
     if ((socket1 = socket(AF_INET, SOCK_STREAM, 0)) < 0) return (-143);
     
     // connect to the binder.
-    if (connect(socket1, (struct sockaddr*)&sockaddr2, sizeof(struct sockaddr_in)) < 0) {
+    if (connect(socket1, (struct sockaddr*)&sockaddr1, sizeof(struct sockaddr_in)) < 0) {
         close(socket1);
         return (-144);
     }
     
-    /*
-     
-     After connecting to binder, send location request message
-     
-    */
-    int message_length, message_length_htonl, bytesSent;
-    int msg_type = 110;
-    int msg_type_htonl;
-    string message = "";
     
-    // add name
-    message += name;
-    cout << "message: " << message << endl;
-    
-    // add artTypes
-    for(int i = 0; ; i++){
-        if(argTypes[i] == 0) break;
-        message += " ";
-        message += to_string(argTypes[i]);
-    }
-    cout << "message: " << message << endl;
+     
+    //  After connecting to binder, send location request message
 
-    // send the message length first.
-    message_length = message.length() + 1;
-    message_length_htonl = htonl(message_length);
-    bytesSent = send(socket1, &message_length_htonl, sizeof(int), 0);
-    // failure case
-    if(bytesSent <= 0) return (-145);
+
+    // send message type first
+    string msg_type = "LOC_REQUEST";
+    if(sendStringMessage(socket1, msg_type) < 0) return (-145);
+
+    // send name
+    string str1(name);
+    if(sendStringMessage(socket1, str1) < 0) return (-145);
+
+    // send argTypes
+    if(sendArrayMessage(socket1, argTypes) < 0) return (-145);
     
-    // followed by type
-    msg_type_htonl = htonl(msg_type);
-    bytesSent = send(socket1, &msg_type_htonl, sizeof(int), 0);
-    // failure case
-    if(bytesSent <= 0) return (-145);
-    
-    // followed by message
-    char* str = (char*) message.c_str();
-    
-    for(int bytesLeft = message_length; bytesLeft > 0; ){
-        bytesSent = send(socket1, str, bytesLeft, 0);
-        if(bytesSent <= 0) return (-145);
-        str = str + bytesSent;
-        bytesLeft = bytesLeft - bytesSent;
-    }
-    
-    /*
      
-        Get the binder's response
+    //    Get the binder's response
      
-    */
-    int bytesRecv;
     
-    // get the first 4 bytes for the Message Length.
-    bytesRecv = recv(fd_binder, &message_length, sizeof(int), 0);
-    if(bytesRecv <= 0) return (-123);
-    message_length = ntohl(message_length);
+    string* response_type;
+    int* argTypes;
     
-    // get the next 4 bytes for the Message Type.
-    bytesRecv = recv(socket1, &msg_type, sizeof(int), 0);
-    if(bytesRecv <= 0) return (-146);
-    msg_type = ntohl(msg_type);
-    
-    // LOC_FAILURE
-    if(msg_type == 112){
+    if(receiveStringMessage(socket1, &response_type) < 0) return (-146);    
+
+    if(*response_type == "LOC_FAILURE"){
         int errMsg;
-        // get the next 4 bytes for the error message
-        bytesRecv = recv(socket1, &errMsg, sizeof(int), 0);
-        if(bytesRecv <= 0) return (-146);
-        errMsg = ntohl(errMsg);
+        if (receiveIntMessage(socket1, &errMsg) < 0) return (-146);
         return errMsg;
     }
+
     
     // LOC_SUCCESS : server_identifier, port
-    char* msg = new char[message_length];
+    string* server_identifier;
+    if(receiveStringMessage(socket1, &server_identifier) < 0) return (-146);
+    char* server_address = (*server_identifier).c_str();
+    cout << "debug: server_address: " << server_address << endl;
+
+    int server_port;
+    if (receiveIntMessage(socket1, &server_port) < 0) return (-146);
+    cout << "debug: server_port: " << server_port << endl;
     
-    // Since the number of bytes actually receive might be less than the number it was set to receive.
-    // Need a loop to receive the complete string.
-    for(int bytesLeft = message_length; bytesLeft > 0; ){
-        bytesRecv = recv(socket1, msg, bytesLeft, 0);
-        if(bytesRecv <= 0) return (-146);
-        bytesLeft = bytesLeft - bytesRecv;
-        msg += bytesRecv;
+
+    //      connect to server
+
+    
+    struct sockaddr_in sa;
+    struct hostent *server;
+    int socket2;
+
+    if ((server = gethostbyname(server_address)) == NULL) return (-147);
+    
+    memset(&sa, 0, sizeof(struct sockaddr_in));
+
+    memcpy((char *)&sa.sin_addr, server->h_addr, server->h_length); /* set address */
+    sa.sin_family = server->h_addrtype;
+    sa.sin_port = htons(server_port);
+
+    if ((socket2 = socket(AF_INET, SOCK_STREAM, 0)) < 0) return (-143);
+
+    if (connect(socket2, (struct sockaddr*)&sa, sizeof(struct sockaddr_in)) < 0) {     /* connect */
+        close(socket2);
+        return (-148);
     }
-    msg -= message_length;
+
+
+    /*
+
+        request execution of a server procedure
+
+    */
+    msg_type = "EXECUTE";   
+    if(sendStringMessage(socket2, msg_type) < 0) return (-145);
+
+    // send name
+    string str2(name);
+    if(sendStringMessage(socket2, str2) < 0) return (-145);
+
+    // send argTypes
+    if(sendArrayMessage(socket2, argTypes) < 0) return (-145);
     
-    string receivedMsg(message);
+    // send args
+    if(sendArgsMessage(socket2, argTypes, args) < 0) return (-145);
+
+    /*
+
+        wait for response from server.
     
-    
-    
+    */
+
 
 }
 
@@ -264,7 +268,7 @@ int rpcInit(){
     
     if((gethostname(hostname, MAX_HOST_NAME)) < 0) return (-100);
     
-    cout << "SERVER_ADDRESS " << hostname << endl;
+    cout << "debug: SERVER_ADDRESS " << hostname << endl;
 
     sockaddr1.sin_family = AF_INET;     
     sockaddr1.sin_addr.s_addr = INADDR_ANY;
@@ -324,7 +328,107 @@ int rpcInit(){
 
 }
 
+/*
 
+    writeToFile(char *name, int *argTypes, skeleton f)
+
+    When server receive the "REGISTER_SUCCESS" message from the binder,
+    server will write the skeleton with the name and argTypes into a skeleton data file.
+
+    Later when server call rpcExecute(), it will construct a local database
+    according to that file. 
+
+*/
+int writeToFile(char *name, int *argTypes, skeleton f){
+    /*
+
+        Get the port number first.
+    
+    */
+    int s = 3;
+
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+
+    if((getsockname(s, (struct sockaddr *)&addr, &len)) < 0){
+        cerr << "ERROR getting socket address" << endl;
+        return -1;
+    }
+
+    int portnum = ntohs(addr.sin_port);
+
+    cout << "debug, writToFile: SERVER_PORT " << portnum << endl;
+
+    /*
+
+        Use the port number to create a unique file name for the data file,
+        since every program in the same system will have a different port number
+        with others. 
+    
+    */
+    stringstream sstm;
+    string filename;
+
+    sstm << "skeleton_data_for_server_" << portnum << ".txt";
+    filename = sstm.str();
+
+    /*
+
+        Open a file with out and app option.
+        out means output.
+        app means the new data will append to the end of the file.
+
+    */
+    ofstream outfile;
+    outfile.open(filename.c_str(), ios::out | ios::app);
+
+    /*
+    
+        Data Format:
+
+        name    size_of_argTypes    argTypes    skeleton  
+
+    */
+    outfile << name << " ";
+
+    int size = 0;
+    for(int i = 0; ; i++){
+      size += 1;
+      if(argTypes[i] == 0) break;
+    }
+
+    outfile << size << " ";
+
+    for(int i = 0; ; i++){
+      if(argTypes[i] == 0){
+        outfile << 0 << " ";
+        break;
+      }
+      outfile << argTypes[i] << " ";
+    }
+
+
+    /*
+
+        There is problem here.
+        Not sure which data should we store for skeleton.
+
+        &f ?    f ?     *f ?
+
+    */
+
+    cout << "debug: &f is " << &f << endl;
+
+    //skeleton ptr = f;
+
+    //string address = convertPointerToStringAddress(ptr);
+
+    outfile << &f << endl;
+
+    outfile.close();
+
+    return 0;
+}
 /*
     
     int rpcRegister(char *name, int *argTypes, skeleton f);
@@ -369,91 +473,97 @@ int rpcRegister(char *name, int *argTypes, skeleton f){
     int fd_client = 3;
     int fd_binder = 4;
 
-    int message_length, message_length_htonl, bytesSent;
-    int msg_type = 100;
-    int msg_type_htonl;
-    string message = "";
+    // send the message type first
+    string msg_type = "REGISTER";
+    if(sendStringMessage(fd_binder, msg_type) < 0) return (-122);
 
-    // construct message
-
-    // add server_identifier
-    char   server_identifier[256 + 1];    
+    // send the server_identifier
+    char server_identifier[256 + 1];    
     if((gethostname(server_identifier, 256)) < 0) return (-120);
-    message += server_identifier;
-    message += " ";
-    cout << "message: " << message << endl;
+    string str1(server_identifier);
+    if(sendStringMessage(fd_binder, str1) < 0) return (-122);
 
-    // add port
-    int portnum;
+    // send the port number
+    int server_port;
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
-
     if((getsockname(fd_client, (struct sockaddr *)&addr, &len)) < 0) return (-121);
-    portnum = ntohs(addr.sin_port);
-    message += to_string(portnum);
-    message += " ";
-    cout << "message: " << message << endl;
+    server_port = ntohs(addr.sin_port);
+    if(sendIntMessage(fd_binder, server_port) < 0) return (-122);
 
-    // add name
-    message += name;
-    cout << "message: " << message << endl;
+    // send name
+    string str2(name);
+    if(sendStringMessage(fd_binder, str2) < 0) return (-122);
 
-    // add artTypes
-    for(int i = 0; ; i++){
-        if(argTypes[i] == 0) break;
-        message += " ";
-        message += to_string(argTypes[i]);
-    }
-    cout << "message: " << message << endl;
+    // send argTypes
+    if(sendArrayMessage(fd_binder, argTypes) < 0) return (-122);
+     
+    //     receive binder's response
+     
+    string* response_type;
+    int ret;
+
+    if (receiveStringMessage(fd_binder, &response_type) < 0) return (-123);      
+    if (receiveIntMessage(fd_binder, &ret) < 0) return (-123);
+
+    // success, then store the data into local file
+    if(*response_type == "REGISTER_SUCCESS"){
+        ret = writeToFile(name, argTypes, *f);
+    } 
+
+    return ret;
+}
 
 
-    // send the message length first.
-    message_length = message.length() + 1;
-    message_length_htonl = htonl(message_length);
-    bytesSent = send(fd_binder, &message_length_htonl, sizeof(int), 0);
-    // failure case
-    if(bytesSent <= 0) return (-122);
-    
-    // followed by type
-    msg_type_htonl = htonl(msg_type);
-    bytesSent = send(fd_binder, &msg_type_htonl, sizeof(int), 0);
-    // failure case
-    if(bytesSent <= 0) return (-122);
+// helper for execution
+int handleExecute(int fd, map <struct function, *skeleton> functionMap){
 
-    // followed by message
-    char* str = (char*) message.c_str();
+    string* name;
+    int* argTypes;
+    void** args;
 
-    for(int bytesLeft = message_length; bytesLeft > 0; ){
-        bytesSent = send(fd_binder, str, bytesLeft, 0);
-        if(bytesSent <= 0) return (-122);
-        str = str + bytesSent;
-        bytesLeft = bytesLeft - bytesSent;
-    }
+    // procedure name
+    if(receiveStringMessage(fd, &name) < 0) return (-170);
+
+    // argument types
+    if(receiveArrayMessage(fd, argTypes) < 0) return (-170);
+
+    // arguments
+    if(receiveArgsMessage(fd, argTypes, args) < 0) return (-170);
 
     /*
-     
-     
-     receive binder's response
-     
-     
-    */
-    int bytesRecv, msg;
-    // get the first 4 bytes for the Message Length (useless in this case).
-    bytesRecv = recv(fd_binder, &msg, sizeof(int), 0);
-    if(bytesRecv <= 0) return (-123);
+
+        get the skeleton from the map.
+
+    */ 
+
+    struct function tempFunction(name, argTypes);
+    if(functionMap.count(tempFunction) == 0){
+
+    }
     
-    // get the next 4 bytes for the Message Type.
-    bytesRecv = recv(fd_binder, &msg_type, sizeof(int), 0);
-    if(bytesRecv <= 0) return (-123);
-    msg_type = ntohl(msg_type);
+    return 0;
 
-    // get the next 4 bytes for the message
-    bytesRecv = recv(fd_binder, &msg, sizeof(int), 0);
-    if(bytesRecv <= 0) return (-123);
-    msg = ntohl(msg);
 
-    //
-    return msg;
+}
+
+/*
+    
+    Helper function which convert an memory address in string format 
+    into a pointer.
+
+*/
+template <typename T>
+T* convertAddressStringToPointer(const std::string& address)
+{
+  std::stringstream ss;
+  ss << address;
+  long long tmp(0);
+  if(!(ss >> tmp)){
+    cerr << "ERROR : Failed - invalid address!" << endl;
+    exit(-1);
+  }
+  return reinterpret_cast<T*>(tmp);
 }
 
 
@@ -479,9 +589,177 @@ int rpcRegister(char *name, int *argTypes, skeleton f){
         To implement the register func you will need to send a register message to the binder.
 */
 int rpcExecute(void){
-    
 
+    // server local database
+    map <struct function, *skeleton> functionMap;
+
+    // this socket id is for clients.
+    int listener = 3;
+
+    /*
+
+        Get the server port number first in order to get the data file name.
+
+    */
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(addr);
+    if((getsockname(listener, (struct sockaddr *)&addr, &len)) < 0){
+        cerr << "ERROR getting socket address" << endl;
+        return -1;
+    }
+
+    int portnum = ntohs(addr.sin_port);
+
+    cout << "debug, rpcExecute(): SERVER_PORT " << portnum << endl;
+
+    /*
+    
+        Read the data file and construct the local database.     
+
+    */
+    stringstream sstm;
+    string filename;
+    sstm << "data_for_server_" << portnum << ".txt";
+    filename = sstm.str();
+
+    string line;
+    ifstream myfile(filename.c_str());
+    if (myfile.is_open()){
+        while(getline(myfile,line)){
+            stringstream ss;
+            ss << line;
+
+            // function name
+            string name;
+            ss >> name;
+
+            // size of argTypes
+            string size;
+            ss >> size;
+            int length = atoi(size.c_str());
+
+            // create argTypes
+            int argTypes[length];
+            string type;
+            for(int i = 0; i < length; i++){
+                ss >> type;
+                argTypes[i] = atoi(type.c_str());
+            }
+
+
+            /*
+
+                Get the skeleton info here.
+                Still have problem!
+
+            */
+            ss >> type;
+
+            cout << type << endl;
+            skeleton* f = convertAddressStringToPointer<skeleton>(type);
+
+            cout << "\ndebug:\n" << name << " " << length << '\n';
+
+            for(int i = 0; i < length; i++){
+                cout << argTypes[i] << " ";
+            }
+
+            cout << &f << "\n\n";
+
+            struct function tempFunction(name, argTypes);
+            // we don't need to care about if the functionMap has record or not.
+            // If not, we create it.
+            // If yes, we update it.
+            functionMap[tempFunction] = f;
+
+        }
+        myfile.close();
+    } 
+    else {
+        cout << "Unable to open file\n";
+        return (-165);
+    }
+
+
+    /*
+
+        After constructing the database successfully,
+        server can handle the requests from clients now.
+    
+    */
+
+    fd_set master;      // master file descriptor list - currently connected fd
+    fd_set read_fds;    // temp  file descriptor list for select()
+    int fdmax;          // max file descriptor number
+    
+    int newsockfd;
+    struct sockaddr_in cli_addr;
+    socklen_t cli_addr_size;
+    
+    FD_ZERO(&master);   // clear sets
+    FD_ZERO(&read_fds);
+    
+    // add listener to master set
+    FD_SET(listener, &master);
+    // keep track of the mas fd. so far, it's listener
+    fdmax = listener;
+    
+    while (1) {
+        read_fds = master;
+        
+        if (select(fdmax+1, &read_fds, NULL, NULL, NULL) <0) return (-160);
+        
+        // run through existing connections, look for data to read      
+        for (int i=0; i<=fdmax; i++){
+            // if we find some fd ready to read
+            if (FD_ISSET(i, &read_fds)){
+                // if ready to read from listener, handle new connection
+                if (i == listener){
+                    cli_addr_size = sizeof(cli_addr);
+                    newsockfd = accept(listener, (struct sockaddr*)&cli_addr, &cli_addr_size);
+                    if (newsockfd < 0) return (-161);
+
+                    FD_SET(newsockfd, &master);     // add to master, since currently connected
+                    if (newsockfd > fdmax)          // update fdmax
+                        fdmax = newsockfd;                  
+                }
+                // else, if ready to read from client, handle new data
+                else{
+                    string* words;                  
+                    int byteRead = receiveStringMessage(i, &words); 
+                    if (byteRead < 0){
+                        close(i);                   
+                        FD_CLR(i, &master);
+                        delete words;
+                        return (-162);
+                    }
+                    // else, if an attempt to receive a request fails, assume the client has quit
+                    else if (byteRead == 0){
+                        close(i);                
+                        FD_CLR(i, &master);
+                    }
+                    // else, ok, we receive some request
+                    else{       
+                        string returnMessage;
+                        int returnValue;
+                        
+                        // if server/client message - EXECUTE
+                        if(*words == "EXECUTE"){
+                            delete words;
+                            int ret = handleExecute(i, &functionMap);
+                        }
+                        if(*words == "TERMINATE"){
+                            delete words;
+                        }
+                    }
+                }// END         
+            }// END new incoming data (fd)
+        }// END fd loop
+    } //END while
 }
+
+
+
 
 
 /*
