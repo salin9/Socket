@@ -31,12 +31,12 @@ ${BINDEREXEC}: ${BINDEROBJECTS}
 ${BINDEROBJECTS} : ${MAKEFILE_NAME}
 
 ${SERVEREXEC}: ${SERVEROBJECTS} librpc.a
-	${CXX} -L. $^ -lrpc -o $@
+	${CXX} -L. $^ -lrpc -lpthread -o $@
 
 ${SERVEROBJECTS} : ${MAKEFILE_NAME}
 	
 ${CLIENTEXEC}: ${CLIENTOBJECTS} librpc.a
-	${CXX} -L. $^ -lrpc -o $@
+	${CXX} -L. $^ -lrpc -lpthread -o $@
 
 ${CLIENTOBJECTS} : ${MAKEFILE_NAME}
 
