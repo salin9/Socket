@@ -3,80 +3,67 @@
 
 #include <string>
 #include <vector>
+#include <sstream>
 
 struct function{
 	std::string* name;		// function name
 	int* argTypes;			// function arguments' types
-	int* argLength;			// function arguments' length
+	//int* argLength;			// function arguments' length
 	int size;
+	std::string* key;		// used as functionMap key
 	
 	function(std::string* name, int* argTypes): name(name), argTypes(argTypes) {
+		std::string temp = *name;
+		
 		int i=0;
 		while (argTypes[i] != 0){
 			i++;
 		}
-		size = i;
-		argLength = new int[i];		// argLength has 1 element less than argTypes. - remember to delete it
+		
 		int j = 0;
 		while (j < i){
-			argLength[j] = argTypes[j] & 65535;
+			// ignore real length. only record scalar(0) or array (1)
+			int len = argTypes[j] & 65535;
+			int type = len ==0 ? argTypes[j] : ((argTypes[j] & 0xFFFF0000 )| 1);
+		
+			std::stringstream ss;
+			ss << type;		
+			temp += ss.str();
+			
 			j++;
 		}
-	}
-	
+		temp += '\0';
+		
+		size = temp.length();
+		
+ 		key = new std::string[size];
+		j=0;		
+		while(j < size){
+			key[j] = temp[j];
+			j++;
+		}
+	}	
 
 	bool operator== (const function& other) const {
-		if ((*name).compare(*other.name) != 0) return false;
-		if (size != other.size) return false;
+		std::string lhs = "";
+		std::string rhs = "";
 		
-		int i=0;
-		while (1){
-			if (argTypes[i] == 0 && other.argTypes[i] == 0) return true;
-			//if (argTypes[i] == 0 || other.argTypes[i] == 0) return false;	// actually, no need here
-			if (argTypes[i] != other.argTypes[i]) return false;			// if different types
-			
-			if (( argLength[i] == 0 && other.argLength[i] > 0) 			// if same type, but one array and one scalar
-					|| 
-				 (argLength[i] > 0 && other.argLength[i] == 0))
-				return false;			
-			i++;
-		}
-		return true;
+		for (int i=0; i<this->size; i++){ lhs += key[i]; }
+		for (int i=0; i<other.size; i++){ rhs += other.key[i]; }
+		
+		return lhs == rhs;
 	}
- 
+	
 	bool operator< (const function& other) const {
-		int flag1 = (*name).compare(*other.name);
-		// flag1 == 0: name == other.name 
-		// flag1 <  0: name  < other.name
-		if (flag1 > 0) return false;
+
+		std::string lhs = "";
+		std::string rhs = "";
 		
-		if (size > other.size) return false;
+		for (int i=0; i<this->size; i++){ lhs += key[i];}
+		for (int i=0; i<other.size; i++){ rhs += other.key[i];}
 		
-	  	int i=0;
-		int flag2 = 0;	// 0: same type all the way. 1: some length > other length
-		while (1){
-			// if same type all the way
-			if (argTypes[i] == 0 && other.argTypes[i] == 0)
-				// if name = other:	flag2=0  => false
-				//					flag2=1  => true
-				// if name < other:	flag2=0  => true
-				//					flag2=1  => true
-				return (flag1 < 0 || flag2);
-				
-			if (argTypes[i] == 0 ) return true;
-			if (other.argTypes[i] == 0) return false;
-			if (argTypes[i] > other.argTypes[i]) return false;
-			if (argTypes[i] < other.argTypes[i]) return true;
-			
-			// if same type, but different length
-			if ( argLength[i] > 0 && other.argLength[i] == 0) 		// define scalar < array
-				return false;
-			if (argLength[i] == 0 && other.argLength[i] > 0)
-				flag2 = 1;
-			
-			i++;
-		}
-	}
+		return lhs < rhs;		
+   }
 };
 
 struct server{
