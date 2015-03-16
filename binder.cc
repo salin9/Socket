@@ -334,7 +334,7 @@ static int handleRequest(int fd){
 			
 		
 	}
-	// if function registered, send the available server' fd and port
+	// if function registered, send the available server' host name and port
 	else{
 		// index = index of all servers providing such a service in serverVector 
 		vector <int>* index = &functionMap[tempFunction];
@@ -402,7 +402,7 @@ static int handleRequest(int fd){
 	-- after all servers terminate, the binder terminates
 	
 */
-static void hendleTerminate(int listener, string* words, fd_set &master){
+static void handleTerminate(int listener, string* words, fd_set &master){
 	
 	map <struct function, vector<int> >::iterator i;
 	
@@ -450,6 +450,98 @@ static void clean(){
 	}
 	
 	cerr << "Finished cleaning. " << endl;
+	
+}
+
+
+static int handleCache(int fd){
+	string returnMessage;
+	int returnValue;
+	
+	string* name;
+	int* argTypes;
+	
+	if (receiveStringMessage(fd, &name) <0){					// delete !!!
+		returnMessage = "CACHE_FAILURE";
+		returnValue = (-222);
+	}
+	if (receiveArrayMessage(fd, &argTypes) <0){				// delete !!!
+		returnMessage = "CACHE_FAILURE";
+		returnValue = (-223);
+	}
+	
+	// if any failure occurs, send back response
+	if (returnMessage.compare("CACHE_FAILURE") == 0){
+		sendStringMessage(fd, returnMessage);
+		sendIntMessage(fd, returnValue);
+		return returnValue;		
+	}
+	
+	/*
+		now, we have function signature. need to send back all servers providing such service
+	*/
+	
+	struct function tempFunction(name, argTypes);
+	
+	// if the function not found (not registered), indicate failure
+	if (functionMap.count(tempFunction) == 0){
+		returnMessage = "CACHE_FAILURE";
+		returnValue = (-240);
+		
+		if (sendStringMessage(fd, returnMessage) < 0){
+			returnValue = (-225);
+			error("ERROR: binder failed to send failure message");
+		}
+			
+		if (sendIntMessage(fd, returnValue) < 0){
+			returnValue = (-225);
+			error("ERROR: binder failed to send warning/error message");
+		}
+		
+	}
+	// if function registered, send all available servers' host names and ports
+	else{
+		// index = index of all servers providing such a service in serverVector 
+		vector <int>* index = &functionMap[tempFunction];	
+
+		returnMessage = "CACHE_SUCCESS";
+		returnValue = 0;
+		
+		// first indicate success -- some servers available
+		if (sendStringMessage(fd, returnMessage) < 0){
+			returnValue = (-225);
+			error("ERROR: binder failed to send success message");
+		}
+		
+		// first send the number of servers available
+		if (sendIntMessage(fd, index->size()) < 0){
+				returnValue = (-225);
+				error("ERROR: binder failed to send the number of servers to be cached");
+		}
+		
+		// then, loop over index, send all servers' info
+		for (int j=0; j<index->size(); j++){
+			// find the index of the first available server by RR
+			struct server* temp = serverVector[j];
+			string* host = temp->host;
+			int port = temp->port;
+			
+			cerr << " cache: send back to client. server: " << *(temp->host) << endl;;
+			
+			if (sendStringMessage(fd, *host) < 0){
+				returnValue = (-225);
+				error("ERROR: binder failed to send fd number");
+			}
+				
+			if (sendIntMessage(fd, port) < 0){
+				returnValue = (-225);
+				error("ERROR: binder failed to send port number");
+			}	
+		}	
+
+	}
+	
+	return returnValue;
 	
 }
 
@@ -544,12 +636,19 @@ static int work(int listener){
 						// if client/binder message - TERMINATE
 						else if (*words == "TERMINATE"){
 							// inform all servers to terminate, close server's and binder's socket
-							hendleTerminate(listener, words, master);
+							handleTerminate(listener, words, master);
 							delete words;
 							// maybe clean up serverVector and functionMap 
 							clean();
 							return 0;
-						}	
+						}
+						// if client/binder message - CACHE
+						else if (*words == "CACHE"){
+							//
+							handleCache(i /*fd*/);
+							delete words;
+							
+						}
 					}
 				}// END			
 			}// END new incoming data (fd)
