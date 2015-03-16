@@ -15,7 +15,7 @@ CLIENTDEPENDS = ${CLIENTOBJECTS:.o=.d}
 CLIENTEXEC = client1
 
 LIB = librpc.a
-LIBOBJECTS = librpc.o message.o
+LIBOBJECTS = rpc.o message.o
 LIBDEPENDS = ${LIBOBJECTS: .o=.d}
 
 EXECS = ${BINDEREXEC} ${SERVEREXEC} ${CLIENTEXEC}
