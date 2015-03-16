@@ -10,6 +10,7 @@
 #include <sstream>    
 #include <cstdlib>
 #include <pthread.h>
+#include <vector>
 #include <map>
 
 #include "rpc.h"
@@ -19,20 +20,21 @@
 using namespace std;
 
 #define MAX_HOST_NAME 64
-#define MAX_CLIENT  5
-
+#define MAX_CLIENT  10
 
 /*
 
-    variables used in rpcExecute()
+    Global Variables
 
 */
-pthread_t thread;
-pthread_mutex_t lock;
-bool terminated = false;
+
+int server_listener, binder_socket; 
+fd_set master;          // master file descriptor list
 
 // server local database
 static map <struct function, skeleton>serverDB;
+//
+vector <pthread_t> threadList;
 
 
 /*
@@ -365,43 +367,7 @@ int rpcCall(char * name, int * argTypes, void ** args){
 
 */
 int rpcInit(){
-
-    /*
-
-        It creates a connection socket to be used for accepting connections from clients.
-
-    */
-
-	char   hostname[MAX_HOST_NAME + 1];
-    int    socket1;
-    struct sockaddr_in sockaddr1;
-    
-    memset(&sockaddr1, 0, sizeof(struct sockaddr_in)); /* clear our address */
-    
-    if((gethostname(hostname, MAX_HOST_NAME)) < 0) return (-100);
-    
-    cout << "debug: SERVER_ADDRESS " << hostname << endl;
-
-    sockaddr1.sin_family = AF_INET;     
-    sockaddr1.sin_addr.s_addr = INADDR_ANY;
-    sockaddr1.sin_port = 0;                
-
-    /* a connection socket to be used for accepting connections from clients. */
-    if ((socket1 = socket(AF_INET, SOCK_STREAM, 0)) < 0) return (-101);
-    
-    /* bind address to socket */
-    if (bind(socket1, (struct sockaddr*)&sockaddr1, sizeof(struct sockaddr_in)) < 0) {
-        close(socket1);
-        return (-102);
-    }
-
-    /* max # of queued connects */
-    if((listen(socket1, MAX_CLIENT)) < 0) return (-103);
-
-    cout << "debug: opened socket for client successfully" << endl;
-
-
-
+    FD_ZERO(&master);
     /*
 
         It opens a connection to the binder.
@@ -409,37 +375,67 @@ int rpcInit(){
         The connection is left open until the server is down.
 
     */
-
     char* binder_address = getenv("BINDER_ADDRESS");
     if(binder_address == NULL) return (-104);
     cout << binder_address << endl;
 
-    int portnum = atoi(getenv("BINDER_PORT"));  
-    if (portnum == 0) return (-105);
-    cout << portnum << endl;
+    int binder_port = atoi(getenv("BINDER_PORT"));
+    if (binder_port == 0) return (-105);
+    cout << binder_port << endl;
 
-    struct sockaddr_in sockaddr2;
+    struct sockaddr_in binder_sockaddr;
     struct hostent *binder;
-    int socket2;
 
     if ((binder = gethostbyname(binder_address)) == NULL) return (-106);
     
-    memset(&sockaddr2, 0, sizeof(struct sockaddr_in));
-
-    memcpy((char *)&sockaddr2.sin_addr, binder->h_addr, binder->h_length); /* set address */
-    sockaddr2.sin_family = binder->h_addrtype;
-    sockaddr2.sin_port = htons(portnum);
+    memset(&binder_sockaddr, 0, sizeof(struct sockaddr_in));
+    memcpy((char *)&binder_sockaddr.sin_addr, binder->h_addr, binder->h_length); /* set address */
+    binder_sockaddr.sin_family = binder->h_addrtype;
+    binder_sockaddr.sin_port = htons(binder_port);
 
     // create the socket for connection to the binder.
-    if ((socket2 = socket(AF_INET, SOCK_STREAM, 0)) < 0) return (-107);
+    if ((binder_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) return (-107);
 
     // connect to the binder.
-    if (connect(socket2, (struct sockaddr*)&sockaddr2, sizeof(struct sockaddr_in)) < 0) {
-        close(socket2);
+    if (connect(binder_socket, (struct sockaddr*)&binder_sockaddr, sizeof(struct sockaddr_in)) < 0) {
+        close(binder_socket);
         return (-108);
     }
 
-    cout << "debug, rpcInit: connected to binder" << endl;
+    FD_SET(binder_socket, &master);
+
+    cout << "rpcInit: connected to binder" << endl;
+    /*
+
+        It creates a connection socket to be used for accepting connections from clients.
+
+    */
+    char   hostname[MAX_HOST_NAME + 1];
+    struct sockaddr_in server_sockaddr;
+    
+    memset(&server_sockaddr, 0, sizeof(struct sockaddr_in)); /* clear our address */
+    
+    if((gethostname(hostname, MAX_HOST_NAME)) < 0) return (-100);
+    
+    cout << "rpcInit: SERVER_ADDRESS " << hostname << endl;
+
+    server_sockaddr.sin_family = AF_INET;     
+    server_sockaddr.sin_addr.s_addr = INADDR_ANY;
+    server_sockaddr.sin_port = 0;                
+
+    /* a connection socket to be used for accepting connections from clients. */
+    if ((server_listener = socket(AF_INET, SOCK_STREAM, 0)) < 0) return (-101);
+    
+    /* bind address to socket */
+    if (bind(server_listener, (struct sockaddr*)&server_sockaddr, sizeof(struct sockaddr_in)) < 0) {
+        close(server_listener);
+        return (-102);
+    }
+
+    /* max # of queued connects */
+    if((listen(server_listener, MAX_CLIENT)) < 0) return (-103);
+
+    cout << "rpcInit: opened socket for client successfully" << endl;
 
     return 0;
 
@@ -485,55 +481,54 @@ int rpcInit(){
 
 */
 int rpcRegister(char *name, int *argTypes, skeleton f){
+    /*
 
+        Send register message to binder.
+
+    */
     cout << "rpcRegister: " << name << endl;
-
-
-    int fd_client = 3;
-    int fd_binder = 4;
 
     // send the message type first
     string msg_type = "REGISTER";
-    if(sendStringMessage(fd_binder, msg_type) < 0) return (-122);
+    if(sendStringMessage(binder_socket, msg_type) < 0) return (-122);
 
     // send the server_identifier
-    char server_identifier[256 + 1];    
-    if((gethostname(server_identifier, 256)) < 0) return (-120);
+    char server_identifier[MAX_HOST_NAME + 1];    
+    if((gethostname(server_identifier, MAX_HOST_NAME)) < 0) return (-120);
     string str1(server_identifier);
-    if(sendStringMessage(fd_binder, str1) < 0) return (-122);
+    if(sendStringMessage(binder_socket, str1) < 0) return (-122);
 
     // send the port number
     int server_port;
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
-    if((getsockname(fd_client, (struct sockaddr *)&addr, &len)) < 0) return (-121);
+    if((getsockname(server_listener, (struct sockaddr *)&addr, &len)) < 0) return (-121);
     server_port = ntohs(addr.sin_port);
-    if(sendIntMessage(fd_binder, server_port) < 0) return (-122);
+    if(sendIntMessage(binder_socket, server_port) < 0) return (-122);
 
     // send name
     string str2(name);
-    if(sendStringMessage(fd_binder, str2) < 0) return (-122);
+    if(sendStringMessage(binder_socket, str2) < 0) return (-122);
 
     // send argTypes
-    if(sendArrayMessage(fd_binder, argTypes) < 0) return (-122);
-     
-    //     receive binder's response
-     
+    if(sendArrayMessage(binder_socket, argTypes) < 0) return (-122);
+    /*
+
+        receive binder's response
+
+    */
     string* response_type;
     int ret;
 
-    if (receiveStringMessage(fd_binder, &response_type) < 0) return (-123);      
-    if (receiveIntMessage(fd_binder, &ret) < 0) return (-123);
+    if (receiveStringMessage(binder_socket, &response_type) < 0) return (-123);      
+    if (receiveIntMessage(binder_socket, &ret) < 0) return (-123);
 
     // success, then store the data into local file
     if(*response_type == "REGISTER_SUCCESS"){
         string* str = new string(name);
-        //string* hello = new string(name);
-
         cout << "debug: adding " << *str << " into server database" << endl;
 
         struct function tempFunction(str, argTypes);
-
         serverDB[tempFunction] = f; 
     } 
 
@@ -544,7 +539,8 @@ int rpcRegister(char *name, int *argTypes, skeleton f){
     helper for execution
     
 */
-int handleExecute(int fd){
+void* handleExecute(void *arg){
+    int fd = *((int*)arg);
 
     cout << "handleExecute, print database:" << endl;
     for (map<struct function, skeleton>::iterator it = serverDB.begin(); it != serverDB.end(); ++it)
@@ -555,12 +551,12 @@ int handleExecute(int fd){
     void** args;
 
     // procedure name
-    if(receiveStringMessage(fd, &name) < 0) return (-170);
+    if(receiveStringMessage(fd, &name) < 0) exit (-170);
 
     cout << "handleExecute: " << *name << endl;
 
     // argument types
-    if(receiveArrayMessage(fd, &argTypes) < 0) return (-170);
+    if(receiveArrayMessage(fd, &argTypes) < 0) exit (-170);
 
     cout << "handleExecute: argTypes" << endl;
 
@@ -576,7 +572,7 @@ int handleExecute(int fd){
     }
 
     // arguments
-    if(receiveArgsMessage(fd, argTypes, args) < 0) return (-170);
+    if(receiveArgsMessage(fd, argTypes, args) < 0) exit (-170);
 
     cout << "handleExecute: args" << endl;
 
@@ -594,10 +590,10 @@ int handleExecute(int fd){
         cout << "EXECUTE_FAILURE" << endl;
 
         string returnMessage = "EXECUTE_FAILURE";
-        if (sendStringMessage(fd, returnMessage) < 0) return (-171);
+        if (sendStringMessage(fd, returnMessage) < 0) exit (-171);
 
         int returnValue = -172;
-        if(sendIntMessage(fd, returnValue) < 0) return (-171);
+        if(sendIntMessage(fd, returnValue) < 0) exit (-171);
     }
     
 
@@ -611,128 +607,30 @@ int handleExecute(int fd){
 
         // send the result back to client
         string msg_type = "EXECUTE_SUCCESS";   
-        if(sendStringMessage(fd, msg_type) < 0) return (-171);
+        if(sendStringMessage(fd, msg_type) < 0) exit (-171);
 
         // send name
-        if(sendStringMessage(fd, *name) < 0) return (-171);
+        if(sendStringMessage(fd, *name) < 0) exit (-171);
 
         // send argTypes
-        if(sendArrayMessage(fd, argTypes) < 0) return (-171);
+        if(sendArrayMessage(fd, argTypes) < 0) exit (-171);
         
         // send args
-        if(sendArgsMessage(fd, argTypes, args) < 0) return (-171);
+        if(sendArgsMessage(fd, argTypes, args) < 0) exit (-171);
     }
     else {
 
         cout << "EXECUTE_FAILURE " << *name << endl;
 
         string returnMessage = "EXECUTE_FAILURE";
-        if (sendStringMessage(fd, returnMessage) < 0) return (-171);
+        if (sendStringMessage(fd, returnMessage) < 0) exit (-171);
 
         int returnValue = -173;
-        if(sendIntMessage(fd, returnValue) < 0) return (-171);
+        if(sendIntMessage(fd, returnValue) < 0) exit (-171);
     }
-
-    return 0;
-}
-
-/*
- 
-    eventHandler: handle the requests from clients.
-
-*/
-void* eventHandler(void *arg){
-    int listener = *((int*)arg);
-
-    fd_set master;          // master file descriptor list
-    fd_set read_fds;        // temp file descriptor list for select()
-    int fdmax;              // maximum file descriptor number
-    int bytesRecv;
-    int newfd;              // newly accept()ed socket descriptor
-    struct sockaddr_in ca;  // client
-    socklen_t addrlen;
-
-    FD_ZERO(&master);   // clear sets
-    FD_ZERO(&read_fds);
-
-    // add listener to master set
-    FD_SET(listener, &master);
-
-    // keep track of the mas fd. so far, it's listener
-    fdmax = listener;
-
-    while(1){
-        // Do we really need this lock?!
-        // Not sure :)
-        pthread_mutex_lock(&lock);
-        if(terminated){
-            cout << "ready to terminate" << endl;
-            break;
-        } 
-        pthread_mutex_unlock(&lock);
-
-        // select
-        read_fds = master;
-        if ((select(fdmax+1, &read_fds, NULL, NULL, NULL)) < 0){
-            cerr << "ERROR: fail on selecting" << endl;
-            continue;
-        }
-
-        // run through existing connections, look for data to read
-        for (int i=0; i<=fdmax; i++){
-            pthread_mutex_lock(&lock);
-            if(terminated){
-                cout << "ready to terminate" << endl;
-                break;
-            } 
-            pthread_mutex_unlock(&lock);
-
-            if (FD_ISSET(i, &read_fds)) { // we got one!!
-                if (i == listener){
-                    addrlen = sizeof(ca);
-                    newfd = accept(listener, (struct sockaddr*)&ca, &addrlen);
-                    if (newfd < 0){
-                        cerr << "ERROR: fail on accepting" << endl;
-                        continue;
-                    }
-
-                    FD_SET(newfd, &master);     // add to master set
-                    if (newfd > fdmax)          // keep track of the max
-                        fdmax = newfd;                 
-                } else {
-                    // handle data from a client
-                    string* words;                  
-                    bytesRecv = receiveStringMessage(i, &words);
-                    if(bytesRecv <= 0){
-                        // got error or connection closed by client
-                        if (bytesRecv == 0) {
-                            // connection closed
-                            cerr << "Server: one client hangs up" << endl;
-                        } else {
-                            cerr << "ERROR: server failed to read from client" << endl;
-                        }
-                        close(i); 
-                        FD_CLR(i, &master); // remove from master set
-                    } else {
-                        if(*words == "EXECUTE"){
-
-                            cout << "eventHandler: EXECUTE" << endl;
-
-                            delete words;
-                            int ret = handleExecute(i);
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    close(listener);
 
     return NULL;
 }
-
-
 
 /*
 
@@ -755,67 +653,98 @@ void* eventHandler(void *arg){
         To implement the register func you will need to send a register message to the binder.
 */
 int rpcExecute(void){
-
-    pthread_mutex_init(&lock, NULL);
-
     cout << "rpcExecute, print server database:" << endl;
     for (map<struct function, skeleton>::iterator it = serverDB.begin(); it != serverDB.end(); ++it)
         cout << *(it->first.name) << "\n\n";
 
 
-    // this socket id is for clients.
-    int fd_client = 3;
-    int fd_binder = 4;
-    /*
+    //  Set up.
 
-        After constructing the database successfully,
-        create a new thread to handle the requests from clients.
-    
-    */
-    int ret = pthread_create(&thread, NULL, &eventHandler, &fd_client);
-    if(ret) return ret;
-    cout << "after pthread_create" << endl;
-    /*
+    fd_set read_fds;        // temp file descriptor list for select()
+    int fdmax;              // maximum file descriptor number
+    int bytesRecv;
+    int newfd;              // newly accept()ed socket descriptor
+    struct sockaddr_in ca;  // client
+    socklen_t addrlen;
 
-        Wait for binder's terminate message
+    FD_ZERO(&read_fds);
+    // add listener to master set
+    FD_SET(server_listener, &master);
+    // keep track of the mas fd. so far, it's listener
+    fdmax = server_listener;
 
-    */
-    string* msg;
+    bool terminated = false;
+    while(!terminated){
+        // select
+        read_fds = master;
+        if ((select(fdmax+1, &read_fds, NULL, NULL, NULL)) < 0){
+            cerr << "ERROR: fail on selecting" << endl;
+            continue;
+        }
 
-    while(true){
-        if (receiveStringMessage(fd_binder, &msg) < 0) return (-170);
+        // run through existing connections, look for data to read
+        for (int i=0; i<=fdmax; i++){
+            if (FD_ISSET(i, &read_fds)) { // we got one!!
+                if (i == server_listener){
+                    addrlen = sizeof(ca);
+                    newfd = accept(server_listener, (struct sockaddr*)&ca, &addrlen);
+                    if (newfd < 0){
+                        cerr << "ERROR: fail on accepting" << endl;
+                        continue;
+                    }
 
-        /*
+                    FD_SET(newfd, &master);     // add to master set
+                    if (newfd > fdmax)          // keep track of the max
+                        fdmax = newfd;                 
+                }
+                else {
+                    // get something to read!
+                    string* words;                  
+                    bytesRecv = receiveStringMessage(i, &words);
+                    if(bytesRecv <= 0){
+                        // got error or connection closed by client
+                        if (bytesRecv == 0) {
+                            // connection closed
+                            cerr << "connection closed" << endl;
+                        } else {
+                            cerr << "ERROR: server failed to read from client" << endl;
+                        }
+                        close(i); 
+                        FD_CLR(i, &master); // remove from master set
+                    } else {
+                        if(*words == "EXECUTE"){
+                            cout << "eventHandler: EXECUTE" << endl;
 
-            Question here.
-            Since the server never close the connection to binder,
-            what should we authticate here?
+                            // We create a new thread to handle the request.
+                            pthread_t thread;
+                            int* fd = (int*) malloc(sizeof(int));
+                            *fd = i;
+                            int ret = pthread_create(&thread, NULL, &handleExecute, fd);
 
-        */
+                            // add the thread to the list.
+                            threadList.push_back(thread);
+                            FD_CLR(i, &master);
+                        }
+                        else if(*words == "TERMINATE"){
 
-        // terminate, then break the loop
-        if(*msg == "TERMINATE"){
-            // Do we really need this lock?!
-            // Not sure :)
-            pthread_mutex_lock(&lock);
-            terminated = true;
-            cout << "lll" << terminated << endl;
-            pthread_mutex_unlock(&lock);
+                            // Authentication.
+                            if(i == binder_socket) terminated = true;
+                        }
+                        else {}
 
-            break;
-        } 
+                        delete words;
+                    }
+                }
+            }
+        }
     }
 
-    cout << "after received terminate" << terminated << endl;
-
-    pthread_join(thread, NULL);
+    for(int i = 0; i < threadList.size(); i++) {
+        pthread_join(threadList[i], NULL);
+    }
 
     return 0;
 }
-
-
-
-
 
 /*
 
