@@ -3,7 +3,9 @@
 
 #include <string>
 
+bool isArray(int input);
 int getLength(int input);
+int getType(int input);
 int getSize(int input);
 
 int sendStringMessage(int sockfd, std::string words);
