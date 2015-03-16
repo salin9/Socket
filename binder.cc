@@ -18,7 +18,7 @@ using namespace std;
 // max simultaneous clients. no limit. ignore the parameter "backlog" of listen
 #define MAX_CLIENT		10
 // max host name length				  
-#define MAX_HOST_NAME	64	
+#define MAX_HOST_NAME	64
 
 // store function-server map. 
 // -- vector<int> indicates the index in the serverVector
@@ -102,6 +102,8 @@ static int printBinderInfo(int sock){
 */
 static int handleRegister(int fd ){
 	
+	cout << "debug: handleRegister" << endl;
+
 	string returnMessage = "";		// indicate success or failure
 	int returnValue = 0;			// indicate warning or errors, if any
 	
@@ -123,20 +125,32 @@ static int handleRegister(int fd ){
 		returnMessage = "REGISTER_FAILURE";
 		returnValue = (-220);
 	}
+
+	cout << "handleRegister: received: " << *host << endl;
+
 	if (receiveIntMessage(fd, &port) <0){
 		returnMessage = "REGISTER_FAILURE";
 		returnValue = (-221);
 	}
+
+	cout << "handleRegister: received: " <<  port << endl;
+
 	result = receiveStringMessage(fd, &name);		// delete name later!!!
 	if ( result <0){ 		
 		if (result == (-302)) delete name;
 		returnMessage = "REGISTER_FAILURE";
 		returnValue = (-222);
 	}
+
+	cout << "handleRegister: received: " << *name << endl;
+
 	if (receiveArrayMessage(fd, &argTypes) <0){ 		// delete aryTypes later!!!
 		returnMessage = "REGISTER_FAILURE";
 		returnValue = (-223);
 	}
+
+	cout << "handleRegister: received argTypes" << endl;
+
 
 	// check if any argTypes[i] are valid
 	int i = 0;
@@ -308,12 +322,16 @@ static int handleRequest(int fd){
 		returnMessage = "LOC_FAILURE";
 		returnValue = (-240);
 		
-		if (sendStringMessage(fd, returnMessage) < 0)
+		if (sendStringMessage(fd, returnMessage) < 0){
 			returnValue = (-225);
 			error("ERROR: binder failed to send failure message");
-		if (sendIntMessage(fd, returnValue) < 0)
+		}
+			
+		if (sendIntMessage(fd, returnValue) < 0){
 			returnValue = (-225);
 			error("ERROR: binder failed to send warning/error message");
+		}
+			
 		
 	}
 	// if function registered, send the available server' fd and port
@@ -353,15 +371,21 @@ static int handleRequest(int fd){
 		returnMessage = "LOC_SUCCESS";
 		returnValue = 0;
 		
-		if (sendStringMessage(fd, returnMessage) < 0)
+		if (sendStringMessage(fd, returnMessage) < 0){
 			returnValue = (-225);
 			error("ERROR: binder failed to send success message");
-		if (sendStringMessage(fd, *host) < 0)
+		}
+			
+		if (sendStringMessage(fd, *host) < 0){
 			returnValue = (-225);
 			error("ERROR: binder failed to send fd number");
-		if (sendIntMessage(fd, port) < 0)
+		}
+			
+		if (sendIntMessage(fd, port) < 0){
 			returnValue = (-225);
 			error("ERROR: binder failed to send port number");
+		}
+			
 
 	}
 	
@@ -460,27 +484,37 @@ static int work(int listener){
 		
 		// run through existing connections, look for data to read		
 		for (int i=0; i<=fdmax; i++){
+			cout << "i: " << i << endl;
 			// if we find some fd ready to read
 			if (FD_ISSET(i, &read_fds)){
+				cout << "we find some fd ready to read" << endl;
 				// if ready to read from listener, handle new connection
 				if (i == listener){
 					cli_addr_size = sizeof(cli_addr);
 					newsockfd = accept(listener, (struct sockaddr*)&cli_addr, &cli_addr_size);
-					if (newsockfd < 0) return (-211);
+					if (newsockfd < 0){
+						cerr << "ERROR: fail on accepting" << endl;
+						continue;
+						//return (-211);
+					}
 
 					FD_SET(newsockfd, &master);		// add to master, since currently connected
 					if (newsockfd > fdmax)			// update fdmax
-						fdmax = newsockfd;					
+						fdmax = newsockfd;	
+
+					cout << "new connection" << endl;
 				}
 				// else, if ready to read from client, handle new data
 				else{
+					cout << "ready to read from client, handle new data" << endl;
 					string* words;					// by our mechanism, it should specify message type
 					int byteRead = receiveStringMessage(i, &words);	// remember to delete words after usage!!!
 					if (byteRead < 0){
 						close(i);					// must be a client. since server is kept open until binder asks for temination
 						FD_CLR(i, &master);
-						delete words;
-						return (-212);
+						//delete words;
+						cerr << "ERROR: Binder failed to read from client" << endl;
+						//return (-212);
 					}
 					// else, if an attempt to receive a request fails, assume the client/server has quit
 					else if (byteRead == 0){
@@ -489,6 +523,7 @@ static int work(int listener){
 					}
 					// else, ok, we receive some request
 					else{		
+						cout << "get something" << endl;
 						string returnMessage;
 						int returnValue;
 						
@@ -496,13 +531,15 @@ static int work(int listener){
 						if (*words == "REGISTER"){
 							returnValue = handleRegister(i /*fd*/ );
 							delete words;
-							if (returnValue<0) return returnValue;
+							if (returnValue<0) cerr << "debug: fail to handleRegister " << endl;
+							// return returnValue;
 						}
 						// if client/binder message - LOC_REQUEST
 						else if (*words == "LOC_REQUEST"){
 							returnValue = handleRequest(i /*fd*/ );
 							delete words;
-							if (returnValue<0) return returnValue;							
+							if (returnValue<0) cerr << "debug: fail to handleRequest " << endl;
+							 //return returnValue;							
 						}
 						// if client/binder message - TERMINATE
 						else if (*words == "TERMINATE"){
