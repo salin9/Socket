@@ -3,6 +3,7 @@
 #include <netinet/in.h>
 #include <cstring>
 #include <vector>
+#include <stdlib.h>
 
 #include "rpc.h"		// for definition of ARG_CHAR ... in getSize
 #include "message.h"
@@ -131,7 +132,130 @@ int sendArrayMessage(int sockfd, int* words){
 	}
 	return byteSent;
 }
- 
+
+char* moveArgsToBuffer(int argsSize, void **args, int * argTypes){
+
+	char *header = (char*) malloc(sizeof(char) * argsSize);
+	char* msgBuffer = header;
+	
+	for(int i=0; argTypes[i]!=0; i++){
+	
+		int argSize = 0;
+		int numElements = (argTypes[i] >> 0) & 0xff;
+		
+		
+		switch(((argTypes[i] >> 16) & 0xff)){
+            case ARG_CHAR:{
+				argSize = sizeof(char);
+				
+				if(numElements >0) {
+					argSize = argSize * numElements;
+					char *arg = (char*)malloc(numElements * sizeof(char));
+					arg = (char*)(args[i]);
+					memcpy(msgBuffer, arg, argSize);
+				}
+				else{
+					char *arg = (char*) args[i];
+					memcpy(msgBuffer, arg, argSize);
+				}
+			
+                break;
+			}
+			
+			case ARG_SHORT:{
+			
+				argSize = sizeof(short);
+				
+				if(numElements >0) {
+					argSize = argSize * numElements;
+					short *arg = (short*)malloc(numElements * sizeof(short));
+					arg = (short*)(args[i]);
+					memcpy(msgBuffer, arg, argSize);
+				}
+				else{
+					short *arg = (short*) args[i];
+					memcpy(msgBuffer, arg, argSize);
+				}
+			
+                break;
+			}
+            case ARG_INT:{
+			
+				argSize = sizeof(int);
+				
+				if(numElements >0) {
+					argSize = argSize * numElements;
+					int *arg = (int*)malloc(numElements * sizeof(int));
+					arg = (int*)(args[i]);
+					memcpy(msgBuffer, arg, argSize);
+				}
+				else{
+					int *arg = (int*) args[i];
+					memcpy(msgBuffer, arg, argSize);
+				}
+			
+                break;
+			}
+            case ARG_LONG:{
+
+                argSize = sizeof(long);
+				
+				if(numElements >0) {
+					argSize = argSize * numElements;
+					int *arg = (int*)malloc(numElements * sizeof(int));
+					arg = (int*)(args[i]);
+					memcpy(msgBuffer, arg, argSize);
+				}
+				else{
+					int *arg = (int*) args[i];
+					memcpy(msgBuffer, arg, argSize);
+				}
+			
+                break;
+			}
+            case ARG_DOUBLE:{
+				
+                argSize = sizeof(double);
+				
+				if(numElements >0) {
+					argSize = argSize * numElements;
+					double *arg = (double*)malloc(numElements * sizeof(double));
+					arg = (double*)(args[i]);
+					memcpy(msgBuffer, arg, argSize);
+				}
+				else{
+					double *arg = (double*) args[i];
+					memcpy(msgBuffer, arg, argSize);
+				}
+			
+                break;
+			}
+            case ARG_FLOAT:{
+			
+				argSize = sizeof(float);
+				
+				if(numElements >0) {
+					argSize = argSize * numElements;
+					float *arg = (float*)malloc(numElements * sizeof(float));
+					arg = (float*)(args[i]);
+					memcpy(msgBuffer, arg, argSize);
+				}
+				else{
+					float *arg = (float*) args[i];
+					memcpy(msgBuffer, arg, argSize);
+				}
+			
+                break;
+			}
+		
+		}
+		
+		msgBuffer+=argSize;
+	}
+	
+	return header;
+}
+
  
 /*
 	int sendArgsMessage(int sockfd, int* types, void ** words);
@@ -144,23 +268,19 @@ int sendArrayMessage(int sockfd, int* words){
 
  */ 
  int sendArgsMessage(int sockfd, int* types, void ** words){
-	int byteSent;
-	int size = 0;
-	while (types[size] != 0){ size++; }	// words.size = types.size - 1
 
-	for (int i=0; i<size; i++){
-		int size = getLength(types[i]) * getSize(types[i]);
-		
-		char* data = new char( size);
-		memcpy(data, words[i], size);
+ 		int size = 0;
+ 		for(int i = 0; types[i] != 0; i++){
+ 			size += (getSize(types[i]) * getLength(types[i]));
+ 		}
 
-		byteSent = send(sockfd, data, size, 0);		
-		delete data;	// free memory
+		char* arg_buffer = moveArgsToBuffer(size, words, types);	
+
+		int byteSent = send(sockfd, arg_buffer, size, 0); 
 		if (byteSent < 0) 
 			return (-300);
-	}	
 	
-	return byteSent;	
+		return byteSent;	
 }
  
  
@@ -279,6 +399,106 @@ int receiveArrayMessage(int sockfd, int** words){
 }
 
 
+void extractArgsFromBuffer(char* msgBuffer, void** args, int* argTypes){
+	
+	for(int i=0; argTypes[i]!=0; i++){
+		int argSize = 0;
+		int numElements = (argTypes[i] >> 0) & 0xff;
+		
+		switch(((argTypes[i] >> 16) & 0xff)){
+            case ARG_CHAR:{
+				argSize = sizeof(char);
+				
+				if(numElements >0) {
+					argSize = argSize*numElements;
+				}
+				
+				char *arg = (char*) malloc(argSize);
+				memcpy(arg, msgBuffer, argSize);
+				args[i] = (void*) arg;
+		
+                break;
+			}
+			
+			case ARG_SHORT:{
+			
+				argSize = sizeof(short);
+				
+				if(numElements >0) {
+					argSize = argSize*numElements;
+				}
+				
+				short *arg = (short*) malloc(argSize);
+				memcpy(arg, msgBuffer, argSize);
+				args[i] = (void*) arg;
+
+                break;
+			}
+            case ARG_INT:{
+			
+				argSize = sizeof(int);
+				
+				if(numElements >0) {
+					argSize = argSize*numElements;
+				}
+				
+				int *arg = (int*) malloc(argSize);
+				memcpy(arg, msgBuffer, argSize);
+				args[i] = (void*) arg;
+
+                break;
+			}
+            case ARG_LONG:{
+
+                argSize = sizeof(long);
+				
+				if(numElements >0) {
+					argSize = argSize*numElements;
+				}
+				
+				long *arg = (long*) malloc(argSize);
+				memcpy(arg, msgBuffer, argSize);
+				args[i] = (void*) arg;
+
+                break;
+			}
+            case ARG_DOUBLE:{
+				
+                argSize = sizeof(double);
+				
+				if(numElements >0) {
+					argSize = argSize*numElements;
+				}
+				
+				double *arg = (double*) malloc(argSize);
+				memcpy(arg, msgBuffer, argSize);
+				args[i] = (void*) arg;
+
+                break;
+			}
+            case ARG_FLOAT:{
+			
+				argSize = sizeof(float);
+				
+				if(numElements >0) {
+					argSize = argSize*numElements;
+				}
+				
+				float *arg = (float*) malloc(argSize);
+				memcpy(arg, msgBuffer, argSize);
+				args[i] = (void*) arg;
+				
+				break;
+			}
+		
+		}
+		
+		msgBuffer+=argSize;
+	}
+
+}
+
+
 /*
 	int receiveArgsMessage(int sockfd, int* types, void ** words);
 	
@@ -291,16 +511,17 @@ int receiveArrayMessage(int sockfd, int** words){
 	*Pre-requisite*: words has been allocated
 	
  */ 
+
 int receiveArgsMessage(int sockfd, int* types, void ** words){
-	int byteSent;
+
 	int size = 0;
-	while (types[size] != 0){ size++; }		// words.size = types.size - 1
+ 	for(int i = 0; types[i] != 0; i++){
+ 		size += (getSize(types[i]) * getLength(types[i]));
+ 	}
+
+	char *argsHeader = (char*) malloc(sizeof(char) * size);
+	recv(sockfd, argsHeader, size, 0);
 	
-	for (int i=0; i<size; i++){	
-		byteSent = recv(sockfd, words[i], getLength(types[i]) * getSize(types[i]), 0);
-		if (byteSent < 0) 
-			return (-301);
-	}
-	
-	return byteSent;	
+	extractArgsFromBuffer(argsHeader, words, types);
+
 }
