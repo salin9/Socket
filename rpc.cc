@@ -38,93 +38,12 @@ vector <pthread_t> threadList;
 
 map <struct function, vector<server*> > clientDB;
 
-
-int getSeverList(int socket1, char* name, int* argTypes){
-    //  After connecting to binder, send location request message
-
-    // send message type first
-    string msg_type = "CACHE";
-    if(sendStringMessage(socket1, msg_type) < 0){
-        close(socket1);
-        return (-145);
-    }
-    // send name
-    string str1(name);
-    if(sendStringMessage(socket1, str1) < 0){
-        close(socket1);
-        return (-145);
-    }
-
-    // send argTypes
-    if(sendArrayMessage(socket1, argTypes) < 0){
-        close(socket1);
-        return (-145);
-    }
-        
-    cout << "rpcCacheCall: after send the message to binder" << endl;
-     
-    // Get the binder's response
-    string* response_type;
-    
-    if(receiveStringMessage(socket1, &response_type) < 0){
-        close(socket1);
-        return (-146); 
-    }    
-
-    if(*response_type == "CACHE_FAILURE"){
-        cout << "CACHE_FAILURE" << endl;
-        int errMsg;
-        if (receiveIntMessage(socket1, &errMsg) < 0){
-            close(socket1);
-            return (-146);
-        }
-        close(socket1);
-        return errMsg;
-    }
-
-    cout << "CACHE_SUCCESS" << endl;
-
-    int numOfSever;
-    if (receiveIntMessage(socket1, &numOfSever) < 0){
-        close(socket1);
-        return (-146); 
-    }
-
-    vector<server*> serverVector;
-
-    for(int i = 0; i < numOfSever; i++){
-        string* server_identifier;
-        if(receiveStringMessage(socket1, &server_identifier) < 0){
-            close(socket1);
-            return (-146); 
-        }
-
-        const char* server_address = (*server_identifier).c_str();
-        cout << "debug: server_address: " << server_address << endl;
-
-        int server_port;
-        if (receiveIntMessage(socket1, &server_port) < 0){
-            close(socket1);
-            return (-146); 
-        }
-        cout << "debug: server_port: " << server_port << endl;
-
-        struct server* tempServer = new server(server_identifier, server_port, 0); // keep on heap
-        serverVector.push_back(tempServer);
-    }
-
-    string* str = new string(name);
-    struct function tempFunction(str, argTypes);
-    clientDB[tempFunction] = serverVector;
-    close(socket1);
-}
-
 int connectTo(const char* server_address, int server_port){
     struct sockaddr_in sa;
     struct hostent *server;
-    int socket2;
+    int sockfd;
 
-    if ((server = gethostbyname(server_address)) == NULL) return (-147);
+    if ((server = gethostbyname(server_address)) == NULL) return (-110);
     
     memset(&sa, 0, sizeof(struct sockaddr_in));
 
@@ -132,50 +51,55 @@ int connectTo(const char* server_address, int server_port){
     sa.sin_family = server->h_addrtype;
     sa.sin_port = htons(server_port);
 
-    if ((socket2 = socket(AF_INET, SOCK_STREAM, 0)) < 0){
-        return (-143);
+    if ((sockfd = socket(AF_INET, SOCK_STREAM, 0)) < 0){
+        return (-111);
     }
 
-    if (connect(socket2, (struct sockaddr*)&sa, sizeof(struct sockaddr_in)) < 0) {
-        close(socket2);
-        return (-148);
+    if (connect(sockfd, (struct sockaddr*)&sa, sizeof(struct sockaddr_in)) < 0) {
+        close(sockfd);
+        return (-1112);
     }
 
-    return socket2;
+    return sockfd;
 }
 
 int interactWithServer(int fd, char* name, int* argTypes, void** args){
+    int result;
     /*
 
         request execution of a server procedure
 
     */
     string msg_type = "EXECUTE";   
-    if(sendStringMessage(fd, msg_type) < 0){
+    result = sendStringMessage(fd, msg_type);
+    if(result < 0){
         close(fd);
-        return (-145);
+        return result;
     }
-    cout << "send EXECUTE" << endl;
+    //cout << "send EXECUTE" << endl;
     // send name
     string str2(name);
-    if(sendStringMessage(fd, str2) < 0){
+    result = sendStringMessage(fd, str2);
+    if(result < 0){
         close(fd);
-        return (-145);
+        return result;
     }
-    cout << "send " << str2 << endl;
+    //cout << "send " << str2 << endl;
     // send argTypes
-    if(sendArrayMessage(fd, argTypes) < 0){
+    result = sendArrayMessage(fd, argTypes);
+    if(result < 0){
         close(fd);
-        return (-145);
+        return result;
     }
-    cout << "send array message" << endl;
+    //cout << "send array message" << endl;
     
     // send args
-    if(sendArgsMessage(fd, argTypes, args) < 0){
+    result = sendArgsMessage(fd, argTypes, args);
+    if(result < 0){
         close(fd);
-        return (-145);
+        return result;
     }
-    cout << "send args msg" << endl;
+    //cout << "send args msg" << endl;
 
     /*
 
@@ -183,16 +107,18 @@ int interactWithServer(int fd, char* name, int* argTypes, void** args){
     
     */
     string* response_type;
-    if(receiveStringMessage(fd, &response_type) < 0){
+    result = receiveStringMessage(fd, &response_type);
+    if(result < 0){
         close(fd);
-        return (-146);
+        return result;
     } 
     if(*response_type == "EXECUTE_FAILURE"){
-        cout << "EXECUTE_FAILURE " << name << endl;
+        //cout << "EXECUTE_FAILURE " << name << endl;
         int errMsg;
-        if (receiveIntMessage(fd, &errMsg) < 0){
+        result = receiveIntMessage(fd, &errMsg);
+        if(result < 0){
             close(fd);
-            return (-146);
+            return result;
         } 
         close(fd);
         return errMsg;
@@ -200,22 +126,25 @@ int interactWithServer(int fd, char* name, int* argTypes, void** args){
 
     // EXECUTE_SUCCESS : name, argTypes, args
     if(*response_type == "EXECUTE_SUCCESS"){
-        cout << "EXECUTE_SUCCESS " << name << endl;
+        //cout << "EXECUTE_SUCCESS " << name << endl;
         string* ret_name;
-        if(receiveStringMessage(fd, &ret_name) < 0){
+        result = receiveStringMessage(fd, &ret_name);
+        if(result < 0){
             close(fd);
-            return (-146);
+            return result;
         } 
         // may need some test case here... like check ret_name equal to name or not.
 
-        if(receiveArrayMessage(fd, &argTypes) < 0){
+        result = receiveArrayMessage(fd, &argTypes);
+        if(result < 0){
             close(fd);
-            return (-146);
+            return result;
         } 
 
-        if(receiveArgsMessage(fd, argTypes, args) < 0){
+        result = receiveArgsMessage(fd, argTypes, args);
+        if(result < 0){
             close(fd);
-            return (-146);
+            return result;
         } 
 
         close(fd);
@@ -314,86 +243,187 @@ int interactWithServer(int fd, char* name, int* argTypes, void** args){
 
 */
 int rpcCall(char * name, int * argTypes, void ** args){
-    
+    int result;
     //  Connect to the binder first
     char* binder_address = getenv("BINDER_ADDRESS");
     if(binder_address == NULL) return (-140);
 
-    cout << binder_address << endl;
+    //cout << binder_address << endl;
     
     int portnum = atoi(getenv("BINDER_PORT"));
     if(portnum == 0) return (-141);
 
-    cout << portnum << endl;
+    //cout << portnum << endl;
     
-    int socket1 = connectTo(binder_address, portnum);    
+    int binder_fd = connectTo(binder_address, portnum);
+    if(binder_fd < 0) return binder_fd;    
     
     //  After connecting to binder, send location request message
 
     // send message type first
     string msg_type = "LOC_REQUEST";
-    if(sendStringMessage(socket1, msg_type) < 0){
-        close(socket1);
-        return (-145);
+    result = sendStringMessage(binder_fd, msg_type);
+    if(result < 0){
+        close(binder_fd);
+        return result;
     }
     // send name
     string str1(name);
-    if(sendStringMessage(socket1, str1) < 0){
-        close(socket1);
-        return (-145);
+    result = sendStringMessage(binder_fd, str1);
+    if(result < 0){
+        close(binder_fd);
+        return result;
     }
 
     // send argTypes
-    if(sendArrayMessage(socket1, argTypes) < 0){
-        close(socket1);
-        return (-145);
+    result = sendArrayMessage(binder_fd, argTypes);
+    if(result < 0){
+        close(binder_fd);
+        return result;
     }
     
-    cout << "rpcCall: after send the message to binder" << endl;
+    //cout << "rpcCall: after send the message to binder" << endl;
      
     // Get the binder's response
     string* response_type;
     
-    if(receiveStringMessage(socket1, &response_type) < 0){
-        close(socket1);
-        return (-146); 
+    result = receiveStringMessage(binder_fd, &response_type);
+    if(result < 0){
+        close(binder_fd);
+        return result; 
     }    
 
     if(*response_type == "LOC_FAILURE"){
-        cout << "LOC_FAILURE" << endl;
+        //cout << "LOC_FAILURE" << endl;
         int errMsg;
-        if (receiveIntMessage(socket1, &errMsg) < 0){
-            close(socket1);
-            return (-146); 
+        result = receiveIntMessage(binder_fd, &errMsg);
+        if(result < 0){
+            close(binder_fd);
+            return result; 
         }
-        close(socket1);
+        close(binder_fd);
         return errMsg;
     }
 
-    cout << "LOC_SUCCESS" << endl;
+    //cout << "LOC_SUCCESS" << endl;
     // LOC_SUCCESS : server_identifier, port
     string* server_identifier;
-    if(receiveStringMessage(socket1, &server_identifier) < 0){
-        close(socket1);
-        return (-146); 
+    result = receiveStringMessage(binder_fd, &server_identifier);
+    if(result < 0){
+        close(binder_fd);
+        return result; 
     }
 
     const char* server_address = (*server_identifier).c_str();
-    cout << "debug: server_address: " << server_address << endl;
+    //cout << "debug: server_address: " << server_address << endl;
 
     int server_port;
-    if (receiveIntMessage(socket1, &server_port) < 0){
-        close(socket1);
-        return (-146); 
+    result = receiveIntMessage(binder_fd, &server_port);
+    if(result < 0){
+        close(binder_fd);
+        return result; 
     }
-    cout << "debug: server_port: " << server_port << endl;
+    //cout << "debug: server_port: " << server_port << endl;
 
     //      connect to server
-    int socket2 = connectTo(server_address, server_port);
+    int server_fd = connectTo(server_address, server_port);
+    if(server_fd < 0) return server_fd;
 
-    int ret = interactWithServer(socket2, name, argTypes, args);
+    int ret = interactWithServer(server_fd, name, argTypes, args);
     return ret;
 }
+
+
+int getSeverList(int sockfd, char* name, int* argTypes){
+    int result;
+    //  After connecting to binder, send location request message
+
+    // send message type first
+    string msg_type = "CACHE";
+    result = sendStringMessage(sockfd, msg_type);
+    if(result < 0){
+        close(sockfd);
+        return result;
+    }
+    // send name
+    string str1(name);
+    result = sendStringMessage(sockfd, str1);
+    if(result < 0){
+        close(sockfd);
+        return result;
+    }
+
+    // send argTypes
+    result = sendArrayMessage(sockfd, argTypes);
+    if(result < 0){
+        close(sockfd);
+        return result;
+    }
+        
+    //cout << "rpcCacheCall: after send the message to binder" << endl;
+     
+    // Get the binder's response
+    string* response_type;
+    
+    result = receiveStringMessage(sockfd, &response_type);
+    if(result < 0){
+        close(sockfd);
+        return result; 
+    }    
+
+    if(*response_type == "CACHE_FAILURE"){
+        //cout << "CACHE_FAILURE" << endl;
+        int errMsg;
+        result = receiveIntMessage(sockfd, &errMsg);
+        if(result < 0){
+            close(sockfd);
+            return result;
+        }
+        close(sockfd);
+        return errMsg;
+    }
+
+    //cout << "CACHE_SUCCESS" << endl;
+
+    int numOfSever;
+    result = receiveIntMessage(sockfd, &numOfSever);
+    if(result < 0){
+        close(sockfd);
+        return result; 
+    }
+
+    vector<server*> serverVector;
+
+    for(int i = 0; i < numOfSever; i++){
+        string* server_identifier;
+        result = receiveStringMessage(sockfd, &server_identifier);
+        if(result < 0){
+            close(sockfd);
+            return result; 
+        }
+
+        const char* server_address = (*server_identifier).c_str();
+        //cout << "debug: server_address: " << server_address << endl;
+
+        int server_port;
+        result = receiveIntMessage(sockfd, &server_port);
+        if(result < 0){
+            close(sockfd);
+            return result; 
+        }
+        //cout << "debug: server_port: " << server_port << endl;
+
+        struct server* tempServer = new server(server_identifier, server_port, 0); // keep on heap
+        serverVector.push_back(tempServer);
+    }
+
+    string* str = new string(name);
+    struct function tempFunction(str, argTypes);
+    clientDB[tempFunction] = serverVector;
+    close(sockfd);
+    return 0;
+}
+
 
 /*
 
@@ -401,13 +431,15 @@ int rpcCall(char * name, int * argTypes, void ** args){
 
 */
 int rpcCacheCall(char* name, int* argTypes, void** args){
+    int result;
+
     char* binder_address = getenv("BINDER_ADDRESS");
-    if(binder_address == NULL) return (-140);
-    cout << binder_address << endl;
+    if(binder_address == NULL) return (-145);
+    //cout << binder_address << endl;
         
     int portnum = atoi(getenv("BINDER_PORT"));
-    if(portnum == 0) return (-141);
-    cout << portnum << endl;
+    if(portnum == 0) return (-146);
+    //cout << portnum << endl;
 
     int binder_fd, server_fd;
 
@@ -416,6 +448,8 @@ int rpcCacheCall(char* name, int* argTypes, void** args){
     // If client doesn't have any infomation in the database yet.
     if(clientDB.count(tempFunction) == 0){
         binder_fd = connectTo(binder_address, portnum);
+        if(binder_fd < 0) return binder_fd;
+
         int ret = getSeverList(binder_fd, name, argTypes);
         // -240 means no list
         if(ret == (-240)) return (-240);
@@ -424,8 +458,10 @@ int rpcCacheCall(char* name, int* argTypes, void** args){
     while(true){
         vector<server*> serverVector = clientDB[tempFunction];
         if(serverVector.empty()){
-            cout << "serverVector is empty" << endl;
+            //cout << "serverVector is empty" << endl;
             binder_fd = connectTo(binder_address, portnum);
+            if(binder_fd < 0) return binder_fd;
+
             int ret = getSeverList(binder_fd, name, argTypes);
             if(ret == (-240)) return (-240);
         }
@@ -435,7 +471,7 @@ int rpcCacheCall(char* name, int* argTypes, void** args){
             string str = *(tempServer->host);
             const char* server_addr = str.c_str();
 
-            cout << tempServer->port << endl;
+            //cout << tempServer->port << endl;
 
             server_fd = connectTo(server_addr, tempServer->port);
             if(server_fd < 0){
@@ -478,34 +514,18 @@ int rpcInit(){
     */
     char* binder_address = getenv("BINDER_ADDRESS");
     if(binder_address == NULL) return (-104);
-    cout << binder_address << endl;
+    //cout << binder_address << endl;
 
     int binder_port = atoi(getenv("BINDER_PORT"));
     if (binder_port == 0) return (-105);
-    cout << binder_port << endl;
+    //cout << binder_port << endl;
 
-    struct sockaddr_in binder_sockaddr;
-    struct hostent *binder;
-
-    if ((binder = gethostbyname(binder_address)) == NULL) return (-106);
-    
-    memset(&binder_sockaddr, 0, sizeof(struct sockaddr_in));
-    memcpy((char *)&binder_sockaddr.sin_addr, binder->h_addr, binder->h_length); /* set address */
-    binder_sockaddr.sin_family = binder->h_addrtype;
-    binder_sockaddr.sin_port = htons(binder_port);
-
-    // create the socket for connection to the binder.
-    if ((binder_socket = socket(AF_INET, SOCK_STREAM, 0)) < 0) return (-107);
-
-    // connect to the binder.
-    if (connect(binder_socket, (struct sockaddr*)&binder_sockaddr, sizeof(struct sockaddr_in)) < 0) {
-        close(binder_socket);
-        return (-108);
-    }
+    binder_socket = connectTo(binder_address, binder_port);
+    if(binder_socket < 0) return binder_socket;
 
     FD_SET(binder_socket, &master);
 
-    cout << "rpcInit: connected to binder" << endl;
+    //cout << "rpcInit: connected to binder" << endl;
     /*
 
         It creates a connection socket to be used for accepting connections from clients.
@@ -518,7 +538,7 @@ int rpcInit(){
     
     if((gethostname(hostname, MAX_HOST_NAME)) < 0) return (-100);
     
-    cout << "rpcInit: SERVER_ADDRESS " << hostname << endl;
+    //cout << "rpcInit: SERVER_ADDRESS " << hostname << endl;
 
     server_sockaddr.sin_family = AF_INET;     
     server_sockaddr.sin_addr.s_addr = INADDR_ANY;
@@ -536,7 +556,7 @@ int rpcInit(){
     /* max # of queued connects */
     if((listen(server_listener, MAX_CLIENT)) < 0) return (-103);
 
-    cout << "rpcInit: opened socket for client successfully" << endl;
+    //cout << "rpcInit: opened socket for client successfully" << endl;
 
     return 0;
 
@@ -582,37 +602,48 @@ int rpcInit(){
 
 */
 int rpcRegister(char *name, int *argTypes, skeleton f){
+    int result;
     /*
 
         Send register message to binder.
 
     */
-    cout << "rpcRegister: " << name << endl;
+    //cout << "rpcRegister: " << name << endl;
 
-    // send the message type first
-    string msg_type = "REGISTER";
-    if(sendStringMessage(binder_socket, msg_type) < 0) return (-122);
-
-    // send the server_identifier
+    // Get the server address
     char server_identifier[MAX_HOST_NAME + 1];    
     if((gethostname(server_identifier, MAX_HOST_NAME)) < 0) return (-120);
-    string str1(server_identifier);
-    if(sendStringMessage(binder_socket, str1) < 0) return (-122);
 
-    // send the port number
+    // Get the server port number
     int server_port;
     struct sockaddr_in addr;
     socklen_t len = sizeof(addr);
     if((getsockname(server_listener, (struct sockaddr *)&addr, &len)) < 0) return (-121);
     server_port = ntohs(addr.sin_port);
-    if(sendIntMessage(binder_socket, server_port) < 0) return (-122);
+
+
+    // send the message type first
+    string msg_type = "REGISTER";
+    result = sendStringMessage(binder_socket, msg_type);
+    if(result < 0) return result;
+
+    // send the server_identifier
+    string str1(server_identifier);
+    result = sendStringMessage(binder_socket, str1);
+    if(result < 0) return result;
+
+    // send the port number 
+    result = sendIntMessage(binder_socket, server_port);
+    if(result < 0) return result;
 
     // send name
     string str2(name);
-    if(sendStringMessage(binder_socket, str2) < 0) return (-122);
+    result = sendStringMessage(binder_socket, str2);
+    if(result < 0) return result;
 
     // send argTypes
-    if(sendArrayMessage(binder_socket, argTypes) < 0) return (-122);
+    result = sendArrayMessage(binder_socket, argTypes);
+    if(result < 0) return result;
     /*
 
         receive binder's response
@@ -621,14 +652,16 @@ int rpcRegister(char *name, int *argTypes, skeleton f){
     string* response_type;
     int ret;
 
-    if (receiveStringMessage(binder_socket, &response_type) < 0) return (-123);      
-    if (receiveIntMessage(binder_socket, &ret) < 0) return (-123);
+    result = receiveStringMessage(binder_socket, &response_type);
+    if(result < 0) return result;
+
+    result = receiveIntMessage(binder_socket, &ret);
+    if(result < 0) return result;
 
     // success, then store the data into local file
     if(*response_type == "REGISTER_SUCCESS"){
         string* str = new string(name);
-        cout << "debug: adding " << *str << " into server database" << endl;
-
+        //cout << "debug: adding " << *str << " into server database" << endl;
         struct function tempFunction(str, argTypes);
         serverDB[tempFunction] = f; 
     } 
@@ -641,31 +674,35 @@ int rpcRegister(char *name, int *argTypes, skeleton f){
     
 */
 void* handleExecute(void *arg){
+    int result;
     int fd = *((int*)arg);
 
+    /*
     cout << "handleExecute, print database:" << endl;
     for (map<struct function, skeleton>::iterator it = serverDB.begin(); it != serverDB.end(); ++it)
         cout << *(it->first.name) << "\n\n";
-    
+    */
+
     string* name;
     int* argTypes;
     void** args;
 
     // procedure name
-    if(receiveStringMessage(fd, &name) < 0) exit (-170);
+    result = receiveStringMessage(fd, &name);
+    if(result < 0) exit(result);
 
-    cout << "handleExecute: " << *name << endl;
+    //cout << "handleExecute: " << *name << endl;
 
     // argument types
-    if(receiveArrayMessage(fd, &argTypes) < 0) exit (-170);
+    result = receiveArrayMessage(fd, &argTypes);
+    if(result < 0) exit(result);
 
-    cout << "handleExecute: argTypes" << endl;
+    //cout << "handleExecute: argTypes" << endl;
 
     int length = 0;
     while(argTypes[length] != 0){length++;} 
 
     args = new void*[length];
-
     for(int i = 0; i < length; i++){
         int arraySize = getLength(argTypes[i]);
         int size = getSize(argTypes[i]) * arraySize;
@@ -673,9 +710,10 @@ void* handleExecute(void *arg){
     }
 
     // arguments
-    if(receiveArgsMessage(fd, argTypes, args) < 0) exit (-170);
+    result = receiveArgsMessage(fd, argTypes, args);
+    if(result < 0) exit(result);
 
-    cout << "handleExecute: args" << endl;
+    //cout << "handleExecute: args" << endl;
 
     /*
 
@@ -684,50 +722,56 @@ void* handleExecute(void *arg){
     */ 
     struct function tempFunction(name, argTypes);
 
-    cout << "something happend with server database?" << endl;
+    //cout << "something happend with server database?" << endl;
 
     // Can't find the function.
     if(serverDB.count(tempFunction) == 0){
-        cout << "EXECUTE_FAILURE" << endl;
+        //cout << "EXECUTE_FAILURE" << endl;
 
         string returnMessage = "EXECUTE_FAILURE";
-        if (sendStringMessage(fd, returnMessage) < 0) exit (-171);
+        result = sendStringMessage(fd, returnMessage);
+        if(result < 0) exit(result);
 
-        int returnValue = -172;
-        if(sendIntMessage(fd, returnValue) < 0) exit (-171);
+        int returnValue = -170;
+        result = sendIntMessage(fd, returnValue);
+        if(result < 0) exit(result);
     }
     
 
     skeleton f = serverDB[tempFunction];
-
     int ret = (*f)(argTypes, args);
 
     if (ret >= 0) { 
 
-        cout << "EXECUTE_SUCCESS " << *name << endl;
+        //cout << "EXECUTE_SUCCESS " << *name << endl;
 
         // send the result back to client
         string msg_type = "EXECUTE_SUCCESS";   
-        if(sendStringMessage(fd, msg_type) < 0) exit (-171);
+        result = sendStringMessage(fd, msg_type);
+        if(result < 0) exit(result);
 
         // send name
-        if(sendStringMessage(fd, *name) < 0) exit (-171);
+        result = sendStringMessage(fd, *name);
+        if(result < 0) exit(result);
 
         // send argTypes
-        if(sendArrayMessage(fd, argTypes) < 0) exit (-171);
+        result = sendArrayMessage(fd, argTypes);
+        if(result < 0) exit(result);
         
         // send args
-        if(sendArgsMessage(fd, argTypes, args) < 0) exit (-171);
+        result = sendArgsMessage(fd, argTypes, args);
+        if(result < 0) exit(result);
     }
     else {
 
-        cout << "EXECUTE_FAILURE " << *name << endl;
-
+        //cout << "EXECUTE_FAILURE " << *name << endl;
         string returnMessage = "EXECUTE_FAILURE";
-        if (sendStringMessage(fd, returnMessage) < 0) exit (-171);
+        result = sendStringMessage(fd, returnMessage);
+        if(result < 0) exit(result);
 
-        int returnValue = -173;
-        if(sendIntMessage(fd, returnValue) < 0) exit (-171);
+        int returnValue = -171;
+        result = sendIntMessage(fd, returnValue);
+        if(result < 0) exit(result);
     }
 
     return NULL;
@@ -754,10 +798,11 @@ void* handleExecute(void *arg){
         To implement the register func you will need to send a register message to the binder.
 */
 int rpcExecute(void){
+    /*
     cout << "rpcExecute, print server database:" << endl;
     for (map<struct function, skeleton>::iterator it = serverDB.begin(); it != serverDB.end(); ++it)
         cout << *(it->first.name) << "\n\n";
-
+    */
 
     //  Set up.
 
@@ -779,7 +824,7 @@ int rpcExecute(void){
         // select
         read_fds = master;
         if ((select(fdmax+1, &read_fds, NULL, NULL, NULL)) < 0){
-            cerr << "ERROR: fail on selecting" << endl;
+            //cerr << "ERROR: fail on selecting" << endl;
             continue;
         }
 
@@ -790,10 +835,9 @@ int rpcExecute(void){
                     addrlen = sizeof(ca);
                     newfd = accept(server_listener, (struct sockaddr*)&ca, &addrlen);
                     if (newfd < 0){
-                        cerr << "ERROR: fail on accepting" << endl;
+                        //cerr << "ERROR: fail on accepting" << endl;
                         continue;
                     }
-
                     FD_SET(newfd, &master);     // add to master set
                     if (newfd > fdmax)          // keep track of the max
                         fdmax = newfd;                 
@@ -806,15 +850,15 @@ int rpcExecute(void){
                         // got error or connection closed by client
                         if (bytesRecv == 0) {
                             // connection closed
-                            cerr << "connection closed" << endl;
+                            //cerr << "connection closed" << endl;
                         } else {
-                            cerr << "ERROR: server failed to read from client" << endl;
+                            //cerr << "ERROR: server failed to read from client" << endl;
                         }
                         close(i); 
                         FD_CLR(i, &master); // remove from master set
                     } else {
                         if(*words == "EXECUTE"){
-                            cout << "eventHandler: EXECUTE" << endl;
+                            //cout << "eventHandler: EXECUTE" << endl;
 
                             // We create a new thread to handle the request.
                             pthread_t thread;
@@ -860,7 +904,7 @@ int rpcExecute(void){
 
 */
 int rpcTerminate(void){
-
+    int result;
     //  Connect to the binder first
     char* binder_address = getenv("BINDER_ADDRESS");
     if(binder_address == NULL) return (-180);
@@ -868,35 +912,17 @@ int rpcTerminate(void){
     int portnum = atoi(getenv("BINDER_PORT"));
     if(portnum == 0) return (-181);
     
-    struct sockaddr_in sockaddr1;
-    struct hostent *binder;
-    int socket1;
-    
-    if ((binder = gethostbyname(binder_address)) == NULL) return (-182);
-    
-    memset(&sockaddr1, 0, sizeof(struct sockaddr_in));
-    
-    memcpy((char *)&sockaddr1.sin_addr, binder->h_addr, binder->h_length); /* set address */
-    sockaddr1.sin_family = binder->h_addrtype;
-    sockaddr1.sin_port = htons(portnum);
-    
-    // create the socket for connection to the binder.
-    if ((socket1 = socket(AF_INET, SOCK_STREAM, 0)) < 0) return (-183);
-    
-    // connect to the binder.
-    if (connect(socket1, (struct sockaddr*)&sockaddr1, sizeof(struct sockaddr_in)) < 0) {
-        close(socket1);
-        return (-184);
-    }
-    
+    int binder_sockfd = connectTo(binder_address, portnum); 
+    if(binder_sockfd < 0) return binder_sockfd; 
     
     //  After connecting to binder, send terminate request message
     string msg_type = "TERMINATE";
-    if(sendStringMessage(socket1, msg_type) < 0){
-        close(socket1);
-        return (-185);
+    result = sendStringMessage(binder_sockfd, msg_type);
+    if(result < 0){
+        close(binder_sockfd);
+        return result;
     }
 
-    close(socket1);
+    close(binder_sockfd);
     return 0;
 }
