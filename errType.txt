@@ -1,57 +1,54 @@
 rpcInit():
-
 -100 : ERROR: failed to get machine hostname
 -101 : ERROR: server failed to open socket for client
 -102 : ERROR: server failed to bind
 -103 : ERROR: server failed to listen
 -104 : ERROR: fail on loading BINDER_ADDRESS
 -105 : ERROR: fail on loading BINDER_PORT
--106 : ERROR: fail on getting binder info
--107 : ERROR: server failed to open socket for binder
--108 : ERROR: fail on connecting to binder
 
+-------------------------------------------------------
+ConnectTo():
+-110 : ERROR: failed on getting hostname
+-111 : ERROR: failed on opening socket
+-112 : ERROR: failed on connecting
 
 -------------------------------------------------------
 rpcRegister():
-
 -120 : ERROR: failed to get machine hostname
 -121 : ERROR: failed to get socket address
--122 : ERROR: fail on sending message
--123 : ERROR: fail on receiving message
-
-
 
 ---------------------------------------------------------
-
 rpcCall():
 -140 : ERROR: fail on loading BINDER_ADDRESS
 -141 : ERROR: fail on loading BINDER_PORT
--142 : ERROR: fail on getting binder info
--143 : ERROR: server failed to open socket for binder
--144 : ERROR: fail on connecting to binder
--145 : ERROR: fail on sending message
--146 : ERROR: fail on receiving message
 
 ---------------------------------------------------------
-
-rpcExecute():
--160 : ERROR: server failed to select
--161 : ERROR: server failed to accept
--162 : ERROR: server failed to read from client
+rpcCacheCall():
+-145 : ERROR: fail on loading BINDER_ADDRESS
+-146 : ERROR: fail on loading BINDER_PORT
 
 ---------------------------------------------------------
-
 handleExecute():
--170 : ERROR: fail on receiving message
-
-
+-170 : ERROR: server doesn't have the asking procedure
+-171 : ERROR: execute failure in the procedure
 
 ---------------------------------------------------------
+rpcTerminate():
+-180 : ERROR: fail on loading BINDER_ADDRESS
+-181 : ERROR: fail on loading BINDER_PORT
 
-message:
+---------------------------------------------------------
+message.cc
 
--300 : ERROR: failed to send message
--301 : ERROR: failed to receive message
+-300 : ERROR: failed to send string message
+-301 : ERROR: failed to send integer message
+-302 : ERROR: failed to send array message
+-303 : ERROR: failed to send args message
+
+-305 : ERROR: failed to receive string message
+-306 : ERROR: failed to receive integer message
+-307 : ERROR: failed to receive array message
+-308 : ERROR: failed to receive args message
 
 ---------------------------------------------------------
 
