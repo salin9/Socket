@@ -40,6 +40,32 @@ static void error(const char *err){
 }
 
 
+static void printAll(){
+	cerr << "serverVector size =" << serverVector.size() << ": ";
+	for (int i=0; i<serverVector.size(); i++){
+	   cerr << i << "---" << *(serverVector[i]->host) << ", ";
+	}
+	cerr <<"  ." <<endl;
+	
+	cerr << "RRqueue size = " << RRqueue.size() << ": ";
+	for (int i=0; i<RRqueue.size(); i++){
+	   cerr << RRqueue[i] << ", ";
+	}
+	cerr <<"  ." <<endl;
+	
+   cerr  << "functionMap = " << functionMap.size() << ": " <<endl;
+   map <struct function,  vector<int> >::iterator p;
+	for (p = functionMap.begin(); p != functionMap.end(); p++){
+		cerr << "   " << *(p->first.name) << ": ";
+		vector <int>* index = &(p->second);
+      for (int j=0; j<index->size(); j++){
+         cerr << j << ", ";
+      }
+      cerr << ". " << endl;
+	}
+}
+
+
 // initialize socket and listen.   ----- REUSE from A2 (file: stringServer.cc) -----
 static int initializeSocket(){
 	int sockfd, port;
@@ -82,6 +108,59 @@ static int printBinderInfo(int sock){
 	cout << "BINDER_PORT " << ntohs(addr.sin_port) << endl;
 	
 	return 0;
+}
+
+
+
+static void removeDeadServer(int fd){
+   int i=0;
+   for (; i < serverVector.size(); i++){
+		if (serverVector[i]->sockfd == fd) {
+		   delete serverVector[i]->host;
+		   serverVector.erase(serverVector.begin() + i);
+		   break;
+		}
+	}	
+
+   //remove from RRqueue
+   for (int j=0; j < RRqueue.size(); j++){
+		if (RRqueue[j] == i) {
+		   RRqueue.erase(RRqueue.begin() + j);
+		   
+		   // if the removed element is not the last one
+		   if (j!= RRqueue.size()) j--;
+		}
+		else if (RRqueue[j] > i){
+		   RRqueue[j]--; 
+		}
+	}
+	
+	// remove from functionMap
+	map <struct function,  vector<int> >::iterator k;
+	for (k = functionMap.begin(); k != functionMap.end(); k++){
+		vector <int>* index = &(k->second);
+	   for (int j=0; j<index->size(); j++){
+	      if (index->at(j) == i){
+	         (*index).erase((*index).begin() + j);
+	         
+	         if (j!=index->size()) j--;		      
+	      }
+	      else if (index->at(j) > i){
+	         (index->at(j))--;
+	      }
+	   }
+	   
+	   /*
+	   if (index->size() == 0){
+	      const struct function* Func  = &(k->first);
+	      functionMap.erase(k);
+	      delete Func->name;
+	      delete [] Func->argTypes;
+	   }
+	   */
+		
+	}
+
 }
 
 
@@ -288,6 +367,14 @@ static int handleRegister(int fd ){
 	
 */
 static int handleRequest(int fd){
+	
+	/////////////////
+
+	
+	
+	/////////////////
+	
+	
 	string returnMessage;
 	int returnValue;
 	
@@ -319,7 +406,9 @@ static int handleRequest(int fd){
 	
 	// if the function not found (not registered), indicate failure
 	if (functionMap.count(tempFunction) == 0){
-		returnMessage = "LOC_FAILURE";
+		cerr << "fucntion not register" << endl;
+
+        returnMessage = "LOC_FAILURE";
 		returnValue = (-240);
 		
 		if (sendStringMessage(fd, returnMessage) < 0){
@@ -338,46 +427,53 @@ static int handleRequest(int fd){
 	else{
 		// index = index of all servers providing such a service in serverVector 
 		vector <int>* index = &functionMap[tempFunction];
-		int serverIndex = 0;		
-		int found = 0;	// 1 indicate "found"
-		for (int i=0; i < RRqueue.size(); i++){
-			// if not found, keep finding
-			if (!found){
-				for (int j=0; j<index->size(); j++){
-					if (RRqueue[i] == index->at(j)){
-						found = 1;
-						serverIndex = RRqueue[i];
-						break;
-					}
-				}
-			}
-			// if found, move the index i to the back of RRqueue, by swapping with the previous one
-			else{
-				int temp = RRqueue[i];
-				RRqueue[i] = RRqueue[i-1];
-				RRqueue[i-1] = temp;				
-			}
+		
+		if (index->size() == 0){
+            cerr << "function registered. but no alive servers " <<endl;
+
+		   returnMessage = "LOC_FAILURE";
+		   returnValue = (-241);
+		
+		   if (sendStringMessage(fd, returnMessage) < 0){
+			   returnValue = (-225);
+			   error("ERROR: binder failed to send failure message");
+		   }
+			
+		   if (sendIntMessage(fd, returnValue) < 0){
+			   returnValue = (-225);
+			   error("ERROR: binder failed to send warning/error message");
+		   }
 		}
+		else{ //
+		    cerr << "ready to find some server" <<endl;
 		
-		// after the loop, we must have found at least one server providing such a service		
+		   int serverIndex = 0;		
+		   int found = 0;	// 1 indicate "found"
+		   for (int i=0; i < RRqueue.size(); i++){
+			   // if not found, keep finding
+			   if (!found){
+				   for (int j=0; j<index->size(); j++){
+					   if (RRqueue[i] == index->at(j)){
+						   found = 1;
+						   serverIndex = RRqueue[i];
+						   break;
+					   }
+				   }
+			   }
+			   // if found, move the index i to the back of RRqueue, by swapping with the previous one
+			   else{
+				   int temp = RRqueue[i];
+				   RRqueue[i] = RRqueue[i-1];
+				   RRqueue[i-1] = temp;				
+			   }
+		   }
 		
-		// find the index of the first available server by RR
-		struct server* temp = serverVector[serverIndex];
-		string* host = temp->host;
-		int port = temp->port;
-		int server_fd = temp->sockfd;
+		   // after the loop, we must have found at least one server providing such a service		
 		
-		cerr << "by RR, check if the server is alive: " << *(temp->host) << endl;
-	
-	   // send message to server to check if it's alive
-	   string test = "Hello";
-	   string* response;
-	
-	   sendStringMessage(server_fd, test);
-	   cerr << "send test " << endl;
-	
-	   // if the server is valid
-	   if ( receiveStringMessage(server_fd, &response) > 0){
+		   // find the index of the first available server by RR
+		   struct server* temp = serverVector[serverIndex];
+		   string* host = temp->host;
+		   int port = temp->port;
 		
 		   cerr << "by RR, the next available server is " << *(temp->host) << endl;;
 		
@@ -399,10 +495,7 @@ static int handleRequest(int fd){
 			   error("ERROR: binder failed to send port number");
 		   }
 		}
-		else{
-		
-		   cerr << "huh? server down?" <<endl;	
-      }
+			
 
 	}
 	
@@ -472,7 +565,94 @@ static void clean(){
 
 
 static int handleCache(int fd){
-	return 0;	
+	string returnMessage;
+	int returnValue;
+	
+	string* name;
+	int* argTypes;
+	
+	if (receiveStringMessage(fd, &name) <0){					// delete !!!
+		returnMessage = "CACHE_FAILURE";
+		returnValue = (-222);
+	}
+	if (receiveArrayMessage(fd, &argTypes) <0){				// delete !!!
+		returnMessage = "CACHE_FAILURE";
+		returnValue = (-223);
+	}
+	
+	// if any failure occurs, send back response
+	if (returnMessage.compare("CACHE_FAILURE") == 0){
+		sendStringMessage(fd, returnMessage);
+		sendIntMessage(fd, returnValue);
+		return returnValue;		
+	}
+	
+	/*
+		now, we have function signature. need to send back all servers providing such service
+	*/
+	
+	struct function tempFunction(name, argTypes);
+	
+	// if the function not found (not registered), indicate failure
+	if (functionMap.count(tempFunction) == 0){
+		returnMessage = "CACHE_FAILURE";
+		returnValue = (-240);
+		
+		if (sendStringMessage(fd, returnMessage) < 0){
+			returnValue = (-225);
+			error("ERROR: binder failed to send failure message");
+		}
+			
+		if (sendIntMessage(fd, returnValue) < 0){
+			returnValue = (-225);
+			error("ERROR: binder failed to send warning/error message");
+		}
+		
+	}
+	// if function registered, send all available servers' host names and ports
+	else{
+		// index = index of all servers providing such a service in serverVector 
+		vector <int>* index = &functionMap[tempFunction];	
+
+		returnMessage = "CACHE_SUCCESS";
+		returnValue = 0;
+		
+		// first indicate success -- some servers available
+		if (sendStringMessage(fd, returnMessage) < 0){
+			returnValue = (-225);
+			error("ERROR: binder failed to send success message");
+		}
+		
+		// first send the number of servers available
+		if (sendIntMessage(fd, index->size()) < 0){
+				returnValue = (-225);
+				error("ERROR: binder failed to send the number of servers to be cached");
+		}
+		
+		// then, loop over index, send all servers' info
+		for (int j=0; j<index->size(); j++){
+			// find the index of the first available server by RR
+			struct server* temp = serverVector[j];
+			string* host = temp->host;
+			int port = temp->port;
+			
+			cerr << " cache: send back to client. server: " << *(temp->host) << endl;;
+			
+			if (sendStringMessage(fd, *host) < 0){
+				returnValue = (-225);
+				error("ERROR: binder failed to send fd number");
+			}
+				
+			if (sendIntMessage(fd, port) < 0){
+				returnValue = (-225);
+				error("ERROR: binder failed to send port number");
+			}	
+		}	
+
+	}
+	
+	return returnValue;
+	
 }
 
 
@@ -532,14 +712,25 @@ static int work(int listener){
 					string* words;					// by our mechanism, it should specify message type
 					int byteRead = receiveStringMessage(i, &words);	// remember to delete words after usage!!!
 					if (byteRead < 0){
-						//close(i);
-						//FD_CLR(i, &master);
+						close(i);					// must be a client. since server is kept open until binder asks for temination
+						FD_CLR(i, &master);
+						
+						removeDeadServer(i);
+						
+						//delete words;
 						cerr << "ERROR: Binder failed to read from client" << endl;
+						printAll();
+						
+						//return (-212);
 					}
 					// else, if an attempt to receive a request fails, assume the client/server has quit
 					else if (byteRead == 0){
-						//close(i);
-						//FD_CLR(i, &master);
+						close(i);
+						FD_CLR(i, &master);
+						
+						removeDeadServer(i);
+						cerr  << "lost connection" << endl;
+						printAll();
 					}
 					// else, ok, we receive some request
 					else{		
