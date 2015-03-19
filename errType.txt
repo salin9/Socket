@@ -93,6 +93,7 @@ handleRequest:
 -223 : ERROR: binder failed to receive argTypes
 
 -240 : ERROR: binder has not registered the function
+-241: ERROR: function registed, no alive server.
 
 
 
