@@ -875,11 +875,13 @@ int rpcExecute(void){
                             FD_CLR(i, &master);
                         }
                         else if(*words == "TERMINATE"){
-
+                            
+                            cerr << "Server received TERMINATE request from Binder. Processing..." << endl;
                             // Authentication.
                             if(i == binder_socket) terminated = true;
                         }
                         else {
+                            cerr << "Server received invaild request." << endl;
                         }
                         delete words;
                     }
@@ -887,8 +889,6 @@ int rpcExecute(void){
             }
         }
     }
-
-    cerr << "Server received TERMINATE request from Binder. Processing..." << endl;
 
     for(int i = 0; i < threadList.size(); i++) {
         pthread_join(threadList[i], NULL);
