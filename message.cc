@@ -110,13 +110,13 @@ int sendStringMessage(int sockfd, string words){
 	int words_len_htonl = htonl(words_len);
 	int byteSent = send(sockfd, &words_len_htonl, sizeof(int), 0);
 	if (byteSent <= 0) 
-		return (-300);
+		return (-301);
 	
 	// then send integer
 	int sendInt = htonl(words);
 	byteSent = send(sockfd, &sendInt, sizeof(int), 0);
 	if (byteSent < 0)
-		return (-300);
+		return (-301);
 
 	return words_len;
 	 
@@ -136,7 +136,7 @@ int sendArrayMessage(int sockfd, int* words){
 		int sendInt = htonl(*words);
 		byteSent = send(sockfd, &sendInt, sizeof(int), 0);
 		if (byteSent < 0) 
-			return (-300);
+			return (-302);
 		
 		if (sendInt == 0) break;
 		words++;		// haven't reached the end, send the next integer
@@ -205,7 +205,7 @@ int sendArrayMessage(int sockfd, int* words){
         }
 
         int byteSent = send(sockfd, msg, size, 0);
-        if(byteSent < 0) return -300;
+        if(byteSent < 0) return -303;
         total += byteSent;
  	}
 
@@ -230,7 +230,7 @@ int receiveStringMessage(int sockfd, string** words){
 	bzero(&words_len, sizeof(int));
 	int byteRecv = recv(sockfd, &words_len, sizeof(int), 0);
 	if (byteRecv <= 0) 
-		return (-301);
+		return (-305);
 	
 
 	// then receive string
@@ -243,7 +243,7 @@ int receiveStringMessage(int sockfd, string** words){
 		bzero(recvWords, length);
 		byteRecv = recv(sockfd, recvWords, length, 0);
 		if (byteRecv <= 0)
-			return (-302);
+			return (-305);
 		length -= byteRecv;
 		recvWords += byteRecv;
 	}
@@ -274,7 +274,7 @@ int receiveIntMessage(int sockfd, int* words){
 	
 	int byteRecv = recv(sockfd, &words_len, sizeof(int), 0);
 	if (byteRecv <= 0) 
-		return (-301);
+		return (-306);
 	
 
 	// then receive integer
@@ -282,7 +282,7 @@ int receiveIntMessage(int sockfd, int* words){
 	int recvInt;
 	byteRecv = recv(sockfd, &recvInt, words_len, 0);
 	if (byteRecv < 0)
-		return (-301);
+		return (-306);
 	
 	*words = ntohl(recvInt);
 	
@@ -308,7 +308,7 @@ int receiveArrayMessage(int sockfd, int** words){
 		
 		byteSent = recv(sockfd, &recvInt, sizeof(int), 0);
 		if (byteSent < 0) 
-			return (-301);
+			return (-307);
 		
 		recvInt = ntohl(recvInt);
 		recvWords.push_back(recvInt);
@@ -349,7 +349,7 @@ int receiveArgsMessage(int sockfd, int* types, void ** words){
 
 		char *msg = (char*) malloc(sizeof(char) * size);
 		int byteRecv = recv(sockfd, msg, size, 0);
-		if(byteRecv < 0) return (-302);
+		if(byteRecv < 0) return (-308);
 
 		switch(type){
             case ARG_CHAR :{
