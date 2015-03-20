@@ -1,0 +1,33 @@
+This is the CS454 a3 accomplished by
+    Jierong Luo. 20438770
+    Lin Gan. 20427209
+######################################################
+
+--------- To compile rpc library and binder ---------
+make
+
+--------- To compile server -- for file server.c ---------
+cc    -c -o server.o server.c
+cc    -c -o server_functions.o server_functions.c
+cc    -c -o server_function_skels.o server_function_skels.c
+g++ -L. server.o server_functions.o server_function_skels.o librpc.a -lrpc -lpthread -o server
+	
+--------- To compile client --  for file client1.c ---------
+cc    -c -o client1.o client1.c
+g++ -L. client1.o librpc.a -lrpc -lpthread -o client1
+
+--------- To run binder ---------
+./binder
+
+--------- To manually set env variables ---------
+export BINDER_ADDRESS=...
+export BINDER_PORT=...
+
+--------- To run server ---------
+./server	
+
+--------- To run client1 ---------
+./client1
+
+--------- To clean up ---------
+./make clean
