@@ -57,7 +57,7 @@ int connectTo(const char* server_address, int server_port){
 
     if (connect(sockfd, (struct sockaddr*)&sa, sizeof(struct sockaddr_in)) < 0) {
         close(sockfd);
-        return (-1112);
+        return (-112);
     }
 
     return sockfd;
