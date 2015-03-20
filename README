@@ -3,6 +3,13 @@ This is the CS454 a3 accomplished by
     Lin Gan. 20427209
 ######################################################
 
+"librpc.a" depends on rpc.o message.o
+"binder" depends on binder.o message.o
+"client1" depends on client1.o librpc.a
+"server" depends on server.o server_functions.o server_function_skels.o librpc.a
+
+#####################################################
+
 --------- To compile rpc library and binder ---------
 make
 
@@ -15,6 +22,8 @@ g++ -L. server.o server_functions.o server_function_skels.o librpc.a -lrpc -lpth
 --------- To compile client --  for file client1.c ---------
 cc    -c -o client1.o client1.c
 g++ -L. client1.o librpc.a -lrpc -lpthread -o client1
+
+######################################################
 
 --------- To run binder ---------
 ./binder
