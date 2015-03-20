@@ -674,6 +674,9 @@ int rpcRegister(char *name, int *argTypes, skeleton f){
     
 */
 void* handleExecute(void *arg){
+
+    cerr << "Server received EXECUTE request from client. Processing..." << endl;
+
     int result;
     int fd = *((int*)arg);
 
@@ -774,6 +777,7 @@ void* handleExecute(void *arg){
         if(result < 0) exit(result);
     }
 
+    cerr << "Server has finished EXECUTE request correctly." << endl;
     return NULL;
 }
 
@@ -884,9 +888,13 @@ int rpcExecute(void){
         }
     }
 
+    cerr << "Server received TERMINATE request from Binder. Processing..." << endl;
+
     for(int i = 0; i < threadList.size(); i++) {
         pthread_join(threadList[i], NULL);
     }
+
+    cerr << "Server is ready to terminate." << endl;
 
     return 0;
 }
